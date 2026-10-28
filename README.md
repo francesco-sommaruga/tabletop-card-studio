@@ -12,6 +12,8 @@ Scarica l’ultima versione dalla pagina [Releases](https://github.com/francesco
 2. Avvialo e segui i passaggi del programma d’installazione.
 3. Apri **Tabletop Card Studio** dal menu Start.
 
+Windows può mostrare un avviso SmartScreen perché l’installer non è firmato. Verifica che il file provenga dalla pagina Releases di questo repository; se scegli di proseguire, fai clic su **Ulteriori informazioni** e poi **Esegui comunque**.
+
 ### macOS
 
 1. Scarica il file `.dmg` dalla release.
