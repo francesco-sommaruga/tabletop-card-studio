@@ -211,9 +211,10 @@ function guessType(header: string): NonNullable<ColumnDefinition['type']> { retu
 function ColorField({ value, onChange, readOnly = false, variables = [] }: { value: string; onChange?: (value: string) => void; readOnly?: boolean; variables?: ProjectVariable[] }) {
   const [libraryOpen, setLibraryOpen] = useState(false)
   const pickerValue = /^#[\da-f]{6}/i.test(value) ? value.slice(0, 7) : '#ffffff'
+  const hasColor = Boolean(value.trim() && CSS.supports('color', value))
   const savedColors = variables.filter((variable) => variable.studioType === 'color' && variable.color)
   return <div className={`color-field ${readOnly ? 'is-readonly' : ''}`}>
-    <span className="color-preview" style={{ backgroundColor: value || 'transparent' }} title={value || 'Nessun colore selezionato'}/>
+    <span className="color-preview" style={{ backgroundColor: hasColor ? value : 'transparent', backgroundImage: hasColor ? 'none' : undefined }} title={value || 'Nessun colore selezionato'}/>
     {readOnly ? <span className="color-field-value">{value || 'Nessuna regola attiva'}</span> : <>
       <input aria-label="Scegli colore" type="color" value={pickerValue} onChange={(event) => onChange?.(event.target.value)}/>
       <input aria-label="Valore colore" type="text" value={value} onChange={(event) => onChange?.(event.target.value)} placeholder="#RRGGBB"/>
