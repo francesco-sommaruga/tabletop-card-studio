@@ -15,7 +15,7 @@ let activeSetId: string | null = null
 let workbooks: WorkbookInfo[] = []
 let assets: ProjectAsset[] = []
 let variables: ProjectVariable[] = []
-const pendingMerges = new Map<string, { setId: string; matchFieldId: string; incoming: Card[]; importedFieldIds: string[] }>()
+const pendingMerges = new Map<string, { setId: string; matchFieldId: string; incoming: Card[]; selectedFieldIds: string[]; baselineFieldIds: string[] }>()
 const dataDirName = '.tabletop-card-studio'
 const defaultColumns: ColumnDefinition[] = [
   { id: 'column_title', header: 'title', fieldId: 'meta_title', type: 'text' },
@@ -174,7 +174,7 @@ async function readWorkbookRowsForSet(filePath: string, set: ProjectSet): Promis
   return { cards, importedFieldIds }
 }
 
-async function previewWorkbookMerge(file: string, setId: string, requestedMatchFieldId?: string): Promise<WorkbookMergePreview> {
+async function previewWorkbookMerge(file: string, setId: string, requestedMatchFieldId?: string, requestedFieldIds?: string[]): Promise<WorkbookMergePreview> {
   const set = sets.find((item) => item.id === setId)
   if (!set) throw new Error('Il set da aggiornare non esiste più.')
   if (set.sourceFile !== path.basename(file)) throw new Error('Questo foglio non è collegato al set selezionato.')
@@ -187,6 +187,9 @@ async function previewWorkbookMerge(file: string, setId: string, requestedMatchF
     : matchFields.some((field) => field.id === set.importMatchFieldId)
       ? set.importMatchFieldId!
       : matchFields.find((field) => field.id === 'meta_title')?.id ?? matchFields[0].id
+  const selectedIds = new Set(requestedFieldIds ?? importedFieldIds)
+  const selectedFieldIds = importedFieldIds.filter((fieldId) => selectedIds.has(fieldId))
+  const baselineFieldIds = [...new Set([...selectedFieldIds, matchFieldId])]
 
   const baselineByCardId = new Map((set.importBaseline ?? []).map((row) => [row.cardId, row.values]))
   const legacyBaseline = !set.importBaseline?.length
@@ -228,7 +231,7 @@ async function previewWorkbookMerge(file: string, setId: string, requestedMatchF
     seenCards.add(current.id)
     const baseline = baselineByCardId.get(current.id)
     let changed = false
-    for (const fieldId of importedFieldIds) {
+    for (const fieldId of selectedFieldIds) {
       const currentValue = cardFieldValue(current, fieldId)
       const incomingValue = cardFieldValue(incomingCard, fieldId)
       const header = set.columns.find((column) => column.fieldId === fieldId)?.header ?? fieldId
@@ -251,8 +254,9 @@ async function previewWorkbookMerge(file: string, setId: string, requestedMatchF
   const missingTitles = set.cards.filter((card) => !seenCards.has(card.id)).map((card) => card.title)
   const token = crypto.randomUUID()
   pendingMerges.clear()
-  pendingMerges.set(token, { setId, matchFieldId, incoming, importedFieldIds })
-  return { token, setId, setName: set.name, file: path.basename(file), matchFieldId, matchFields, matchedRows, unchangedRows, newTitles, missingTitles, automaticChanges, preservedLocalChanges, conflicts, duplicateKeys, legacyBaseline }
+  pendingMerges.set(token, { setId, matchFieldId, incoming, selectedFieldIds, baselineFieldIds })
+  const importFields = set.columns.filter((column, index, all) => importedFieldIds.includes(column.fieldId) && all.findIndex((candidate) => candidate.fieldId === column.fieldId) === index).map((column) => ({ id: column.fieldId, label: column.header }))
+  return { token, setId, setName: set.name, file: path.basename(file), matchFieldId, matchFields, importFields, selectedFieldIds, matchedRows, unchangedRows, newTitles, missingTitles, automaticChanges, preservedLocalChanges, conflicts, duplicateKeys, legacyBaseline }
 }
 
 async function applyWorkbookMerge(token: string, resolutions: Record<string, 'excel' | 'set'>): Promise<ProjectSnapshot> {
@@ -275,14 +279,15 @@ async function applyWorkbookMerge(token: string, resolutions: Record<string, 'ex
     if (!key) continue
     const current = existingByKey.get(key)
     if (!current) {
-      const added = { ...incoming, id: `card_${crypto.randomUUID()}`, status: 'Idea' as const, tags: [], updatedAt: now }
+      const newFieldIds = [...new Set([...pending.selectedFieldIds, pending.matchFieldId])]
+      const added = { ...incoming, id: `card_${crypto.randomUUID()}`, title: newFieldIds.includes('meta_title') ? incoming.title : `Carta ${set.cards.length + addedCards.length + 1}`, status: 'Idea' as const, tags: [], quantity: newFieldIds.includes('meta_quantity') ? incoming.quantity : 1, values: Object.fromEntries(newFieldIds.map((fieldId) => [fieldId, incoming.values[fieldId] ?? ''])), updatedAt: now }
       addedCards.push(added)
-      baselineByCardId.set(added.id, Object.fromEntries(pending.importedFieldIds.map((fieldId) => [fieldId, cardFieldValue(incoming, fieldId)])))
+      baselineByCardId.set(added.id, Object.fromEntries(pending.baselineFieldIds.map((fieldId) => [fieldId, cardFieldValue(incoming, fieldId)])))
       continue
     }
     const baseline = baselineByCardId.get(current.id) ?? {}
     const next: Card = { ...current, values: { ...current.values } }
-    for (const fieldId of pending.importedFieldIds) {
+    for (const fieldId of pending.selectedFieldIds) {
       const currentValue = cardFieldValue(current, fieldId)
       const incomingValue = cardFieldValue(incoming, fieldId)
       const fieldChanged = currentValue !== incomingValue
@@ -303,6 +308,7 @@ async function applyWorkbookMerge(token: string, resolutions: Record<string, 'ex
       }
       baseline[fieldId] = incomingValue
     }
+    for (const fieldId of pending.baselineFieldIds) baseline[fieldId] = cardFieldValue(incoming, fieldId)
     if (JSON.stringify(next) !== JSON.stringify(current)) next.updatedAt = now
     const index = set.cards.findIndex((card) => card.id === current.id)
     if (index >= 0) set.cards[index] = next
@@ -592,7 +598,7 @@ app.whenReady().then(() => {
     workbooks = await scanWorkbooks()
     return snapshot()
   })
-  ipcMain.handle('workbooks:merge-preview', async (_event, file: string, setId: string, matchFieldId?: string) => previewWorkbookMerge(file, setId, matchFieldId))
+  ipcMain.handle('workbooks:merge-preview', async (_event, file: string, setId: string, matchFieldId?: string, fieldIds?: string[]) => previewWorkbookMerge(file, setId, matchFieldId, fieldIds))
   ipcMain.handle('workbooks:merge-apply', async (_event, token: string, resolutions: Record<string, 'excel' | 'set'>) => applyWorkbookMerge(token, resolutions))
   ipcMain.handle('assets:import', async () => {
     const result = await dialog.showOpenDialog(win!, { title: 'Aggiungi asset al progetto', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Immagini', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'avif'] }] })

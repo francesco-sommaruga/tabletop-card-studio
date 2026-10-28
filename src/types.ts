@@ -104,6 +104,8 @@ export interface WorkbookMergePreview {
   file: string
   matchFieldId: string
   matchFields: Array<{ id: string; label: string }>
+  importFields: Array<{ id: string; label: string }>
+  selectedFieldIds: string[]
   matchedRows: number
   unchangedRows: number
   newTitles: string[]
@@ -160,7 +162,7 @@ export interface CardCmsApi {
   saveVariables: (variables: ProjectVariable[]) => Promise<ProjectSnapshot>
   selectSet: (id: string) => Promise<ProjectSnapshot>
   importWorkbooks: (plans: ImportPlan[]) => Promise<ProjectSnapshot>
-  previewWorkbookMerge: (file: string, setId: string, matchFieldId?: string) => Promise<WorkbookMergePreview>
+  previewWorkbookMerge: (file: string, setId: string, matchFieldId?: string, fieldIds?: string[]) => Promise<WorkbookMergePreview>
   applyWorkbookMerge: (token: string, resolutions: Record<string, 'excel' | 'set'>) => Promise<ProjectSnapshot>
   createSet: (name: string) => Promise<ProjectSnapshot>
   scanWorkbooks: () => Promise<WorkbookInfo[]>
