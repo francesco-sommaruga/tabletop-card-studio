@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Card, ColumnDefinition, GitStatus, ImportPlan, ProjectSnapshot, ProjectAsset, ProjectSummary, WorkbookInfo } from '../src/types'
+import type { Card, ColumnDefinition, GitStatus, ImportPlan, ProjectSnapshot, ProjectAsset, ProjectSummary, ProjectVariable, WorkbookInfo } from '../src/types'
 
 contextBridge.exposeInMainWorld('cardCms', {
   openProject: () => ipcRenderer.invoke('project:open') as Promise<ProjectSnapshot | null>,
@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('cardCms', {
   listProjects: () => ipcRenderer.invoke('projects:list') as Promise<ProjectSummary[]>,
   saveCards: (cards: Card[]) => ipcRenderer.invoke('cards:save', cards) as Promise<void>,
   saveColumns: (columns: ColumnDefinition[]) => ipcRenderer.invoke('columns:save', columns) as Promise<void>,
+  saveVariables: (variables: ProjectVariable[]) => ipcRenderer.invoke('variables:save', variables) as Promise<ProjectSnapshot>,
   selectSet: (id: string) => ipcRenderer.invoke('sets:select', id) as Promise<ProjectSnapshot>,
   importWorkbooks: (plans: ImportPlan[]) => ipcRenderer.invoke('workbooks:import', plans) as Promise<ProjectSnapshot>,
   createSet: (name: string) => ipcRenderer.invoke('sets:create', name) as Promise<ProjectSnapshot>,

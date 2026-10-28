@@ -14,8 +14,9 @@ export interface ColumnDefinition {
   id: string
   header: string
   fieldId: string
-  type?: 'text' | 'number' | 'select' | 'image' | 'longtext'
+  type?: 'text' | 'number' | 'select' | 'image' | 'longtext' | 'variable'
   options?: string[]
+  variableTags?: string[]
 }
 
 export interface ProjectSet {
@@ -44,6 +45,8 @@ export interface ProjectVariable {
   replacement: string
   force_tint?: string
   color?: string
+  studioTags?: string[]
+  [key: string]: unknown
 }
 
 export interface ProjectSummary {
@@ -103,6 +106,7 @@ export interface CardCmsApi {
   listProjects: () => Promise<ProjectSummary[]>
   saveCards: (cards: Card[]) => Promise<void>
   saveColumns: (columns: ColumnDefinition[]) => Promise<void>
+  saveVariables: (variables: ProjectVariable[]) => Promise<ProjectSnapshot>
   selectSet: (id: string) => Promise<ProjectSnapshot>
   importWorkbooks: (plans: ImportPlan[]) => Promise<ProjectSnapshot>
   createSet: (name: string) => Promise<ProjectSnapshot>

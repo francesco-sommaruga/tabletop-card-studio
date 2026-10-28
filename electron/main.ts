@@ -160,7 +160,13 @@ async function scanAssets(): Promise<ProjectAsset[]> {
 async function loadVariables(): Promise<ProjectVariable[]> {
   try {
     const json = JSON.parse(await fs.readFile(path.join(activeProject, 'data', 'variables.json'), 'utf8'))
-    return Array.isArray(json.variables) ? json.variables.filter((item: unknown): item is ProjectVariable => typeof item === 'object' && item !== null && 'code' in item && typeof (item as Record<string, unknown>).code === 'string') : []
+    const source: ProjectVariable[] = Array.isArray(json.variables) ? json.variables.filter((item: unknown): item is ProjectVariable => typeof item === 'object' && item !== null && 'code' in item && typeof (item as Record<string, unknown>).code === 'string') : []
+    let tagMap: Record<string, string[]> = {}
+    try {
+      const metadata = JSON.parse(await fs.readFile(path.join(activeProject, dataDirName, 'variable-tags.json'), 'utf8'))
+      if (metadata && typeof metadata === 'object' && metadata.variables && typeof metadata.variables === 'object') tagMap = metadata.variables
+    } catch { /* no CMS tag metadata yet */ }
+    return source.map((variable) => ({ ...variable, studioTags: tagMap[variable.code.toLocaleLowerCase()] ?? variable.studioTags ?? [] }))
   } catch { return [] }
 }
 
@@ -340,6 +346,26 @@ app.whenReady().then(() => {
     if (!current) return
     current.columns = nextColumns
     await persistSets()
+  })
+  ipcMain.handle('variables:save', async (_event, nextVariables: ProjectVariable[]) => {
+    if (!activeProject) throw new Error('Apri prima un progetto Tabletop Creator.')
+    const filePath = path.join(activeProject, 'data', 'variables.json')
+    await fs.mkdir(path.dirname(filePath), { recursive: true })
+    let document: Record<string, unknown> = { json_version: 5, variables: [] }
+    try {
+      const existing = JSON.parse(await fs.readFile(filePath, 'utf8'))
+      if (existing && typeof existing === 'object' && !Array.isArray(existing)) document = existing
+    } catch { /* create the variables file when it does not exist yet */ }
+    document.variables = nextVariables.map(({ studioTags: _studioTags, ...variable }) => variable)
+    await fs.writeFile(filePath, JSON.stringify(document, null, 2))
+    const tagMap = Object.fromEntries(nextVariables
+      .filter((variable) => variable.studioTags?.length)
+      .map((variable) => [variable.code.toLocaleLowerCase(), [...new Set(variable.studioTags!.map((tag) => tag.trim()).filter(Boolean))]]))
+    const metadataPath = path.join(activeProject, dataDirName, 'variable-tags.json')
+    await fs.mkdir(path.dirname(metadataPath), { recursive: true })
+    await fs.writeFile(metadataPath, JSON.stringify({ variables: tagMap }, null, 2))
+    variables = nextVariables
+    return snapshot()
   })
   ipcMain.handle('sets:select', async (_event, id: string) => { if (sets.some((set) => set.id === id)) activeSetId = id; return snapshot() })
   ipcMain.handle('sets:create', async (_event, name: string) => {

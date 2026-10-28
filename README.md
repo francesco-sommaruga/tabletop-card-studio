@@ -60,11 +60,14 @@ I pacchetti vengono generati in `dist/`.
 - Crea campi di testo, testo lungo, numero, select e immagine; riordina le colonne e salva le modifiche prima di applicarle.
 - Assegna tag e stato alle carte, cerca e filtra per campi e ordina l’archivio.
 - Consulta statistiche per tag e proprietà, anche incrociando due campi e contando carte uniche o copie.
-- Gestisci gli asset del progetto e usa le variabili di `data/variables.json` nei campi testuali.
+- Crea e modifica le variabili di `data/variables.json`, assegna loro tag e limita i campi variabile ai tag scelti.
+- Gestisci gli asset del progetto e usa le variabili di Tabletop Creator nei campi testuali.
 - Esporta ogni set in un foglio `.xlsx` separato.
 - Collega un repository GitHub e gestisci commit, pull e push con le credenziali Git del computer.
 
 L’app salva i propri dati in `.tabletop-card-studio/` nella cartella del progetto aperto. Le immagini importate vengono copiate in `assets/card-studio/`. I fogli Excel originali non vengono modificati; l’esportazione crea un file `*-cms-export.xlsx`.
+
+I tag usati per filtrare le variabili sono metadati del Card Studio salvati in `.tabletop-card-studio/variable-tags.json`; le definizioni delle variabili vengono salvate nel formato di Tabletop Creator in `data/variables.json`.
 
 ## Nuove release
 
