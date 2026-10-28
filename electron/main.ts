@@ -15,7 +15,7 @@ let activeSetId: string | null = null
 let workbooks: WorkbookInfo[] = []
 let assets: ProjectAsset[] = []
 let variables: ProjectVariable[] = []
-const pendingMerges = new Map<string, { setId: string; matchFieldId: string; incoming: Card[]; selectedFieldIds: string[]; baselineFieldIds: string[] }>()
+const pendingMerges = new Map<string, { setId: string; matchFieldId: string; incoming: Card[]; selectedFieldIds: string[]; baselineFieldIds: string[]; restoreColumns: ColumnDefinition[] }>()
 const dataDirName = '.tabletop-card-studio'
 const defaultColumns: ColumnDefinition[] = [
   { id: 'column_title', header: 'title', fieldId: 'meta_title', type: 'text' },
@@ -24,6 +24,13 @@ const defaultColumns: ColumnDefinition[] = [
 
 function fieldIdFor(header: string) {
   return `field_${header.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'unnamed'}`
+}
+
+function importedFieldIdFor(header: string) {
+  const lower = header.toLocaleLowerCase()
+  if (['title', 'titolo', 'name', 'nome'].includes(lower)) return 'meta_title'
+  if (['[item amount]', 'amount', 'quantità', 'quantita'].includes(lower)) return 'meta_quantity'
+  return fieldIdFor(header)
 }
 
 function activeSet() { return sets.find((set) => set.id === activeSetId) ?? null }
@@ -95,7 +102,24 @@ async function scanWorkbooks(): Promise<WorkbookInfo[]> {
 }
 
 function guessFieldType(header: string): ColumnDefinition['type'] {
-  return /color|colour|colore/i.test(header) ? 'color' : /amount|quantit|costo|cost|speed|potenza|numero|count/i.test(header) ? 'number' : /text|effetto|description|descrizione|regole/i.test(header) ? 'longtext' : 'text'
+  return /color|colour|colore/i.test(header) ? 'color' : /image|immagine|illustrazione|artwork/i.test(header) ? 'image' : /amount|quantit|costo|cost|speed|potenza|numero|count/i.test(header) ? 'number' : /text|effetto|description|descrizione|regole/i.test(header) ? 'longtext' : 'text'
+}
+
+async function workbookRestoreFields(filePath: string, set: ProjectSet) {
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.readFile(filePath)
+  const sheet = workbook.worksheets[0]
+  const currentHeaders = new Set(set.columns.map((column) => column.header.trim().toLocaleLowerCase()))
+  const currentIds = new Set(set.columns.map((column) => column.fieldId))
+  const restoreFields: Array<{ id: string; header: string; type: NonNullable<ColumnDefinition['type']> }> = []
+  sheet.getRow(1).eachCell({ includeEmpty: true }, (cell) => {
+    const header = cell.text.trim()
+    if (!header || currentHeaders.has(header.toLocaleLowerCase())) return
+    const id = importedFieldIdFor(header)
+    if (currentIds.has(id) || restoreFields.some((field) => field.id === id)) return
+    restoreFields.push({ id, header, type: guessFieldType(header) ?? 'text' })
+  })
+  return restoreFields
 }
 
 async function readPlannedWorkbook(filePath: string, plan: ImportPlan): Promise<ProjectSet> {
@@ -174,12 +198,16 @@ async function readWorkbookRowsForSet(filePath: string, set: ProjectSet): Promis
   return { cards, importedFieldIds }
 }
 
-async function previewWorkbookMerge(file: string, setId: string, requestedMatchFieldId?: string, requestedFieldIds?: string[]): Promise<WorkbookMergePreview> {
+async function previewWorkbookMerge(file: string, setId: string, requestedMatchFieldId?: string, requestedFieldIds?: string[], requestedRestoreFieldIds?: string[]): Promise<WorkbookMergePreview> {
   const set = sets.find((item) => item.id === setId)
   if (!set) throw new Error('Il set da aggiornare non esiste più.')
   if (set.sourceFile !== path.basename(file)) throw new Error('Questo foglio non è collegato al set selezionato.')
   const filePath = path.join(activeProject, path.basename(file))
-  const { cards: incoming, importedFieldIds } = await readWorkbookRowsForSet(filePath, set)
+  const restoreFields = await workbookRestoreFields(filePath, set)
+  const restoredFieldIds = restoreFields.filter((field) => requestedRestoreFieldIds?.includes(field.id)).map((field) => field.id)
+  const restoreColumns: ColumnDefinition[] = restoreFields.filter((field) => restoredFieldIds.includes(field.id)).map((field) => ({ id: `column_${field.id}`, header: field.header, fieldId: field.id, type: field.type }))
+  const effectiveSet = restoreColumns.length ? { ...set, columns: [...set.columns, ...restoreColumns] } : set
+  const { cards: incoming, importedFieldIds } = await readWorkbookRowsForSet(filePath, effectiveSet)
   const matchFields = set.columns.filter((column, index, all) => importedFieldIds.includes(column.fieldId) && all.findIndex((candidate) => candidate.fieldId === column.fieldId) === index).map((column) => ({ id: column.fieldId, label: column.header }))
   if (!matchFields.length) throw new Error('Non trovo colonne del foglio corrispondenti ai campi del set.')
   const matchFieldId = matchFields.some((field) => field.id === requestedMatchFieldId)
@@ -254,9 +282,9 @@ async function previewWorkbookMerge(file: string, setId: string, requestedMatchF
   const missingTitles = set.cards.filter((card) => !seenCards.has(card.id)).map((card) => card.title)
   const token = crypto.randomUUID()
   pendingMerges.clear()
-  pendingMerges.set(token, { setId, matchFieldId, incoming, selectedFieldIds, baselineFieldIds })
-  const importFields = set.columns.filter((column, index, all) => importedFieldIds.includes(column.fieldId) && all.findIndex((candidate) => candidate.fieldId === column.fieldId) === index).map((column) => ({ id: column.fieldId, label: column.header }))
-  return { token, setId, setName: set.name, file: path.basename(file), matchFieldId, matchFields, importFields, selectedFieldIds, matchedRows, unchangedRows, newTitles, missingTitles, automaticChanges, preservedLocalChanges, conflicts, duplicateKeys, legacyBaseline }
+  pendingMerges.set(token, { setId, matchFieldId, incoming, selectedFieldIds, baselineFieldIds, restoreColumns })
+  const importFields = effectiveSet.columns.filter((column, index, all) => importedFieldIds.includes(column.fieldId) && all.findIndex((candidate) => candidate.fieldId === column.fieldId) === index).map((column) => ({ id: column.fieldId, label: column.header }))
+  return { token, setId, setName: set.name, file: path.basename(file), matchFieldId, matchFields, importFields, selectedFieldIds, restoreFields, restoredFieldIds, matchedRows, unchangedRows, newTitles, missingTitles, automaticChanges, preservedLocalChanges, conflicts, duplicateKeys, legacyBaseline }
 }
 
 async function applyWorkbookMerge(token: string, resolutions: Record<string, 'excel' | 'set'>): Promise<ProjectSnapshot> {
@@ -264,6 +292,7 @@ async function applyWorkbookMerge(token: string, resolutions: Record<string, 'ex
   if (!pending) throw new Error('La prévisualizzazione del merge è scaduta. Riapri il confronto con il foglio.')
   const set = sets.find((item) => item.id === pending.setId)
   if (!set) throw new Error('Il set da aggiornare non esiste più.')
+  for (const column of pending.restoreColumns) if (!set.columns.some((existing) => existing.fieldId === column.fieldId)) set.columns.push(column)
   const baselineByCardId = new Map((set.importBaseline ?? []).map((row) => [row.cardId, { ...row.values }]))
   const existingByKey = new Map<string, Card>()
   for (const card of set.cards) {
@@ -598,7 +627,7 @@ app.whenReady().then(() => {
     workbooks = await scanWorkbooks()
     return snapshot()
   })
-  ipcMain.handle('workbooks:merge-preview', async (_event, file: string, setId: string, matchFieldId?: string, fieldIds?: string[]) => previewWorkbookMerge(file, setId, matchFieldId, fieldIds))
+  ipcMain.handle('workbooks:merge-preview', async (_event, file: string, setId: string, matchFieldId?: string, fieldIds?: string[], restoreFieldIds?: string[]) => previewWorkbookMerge(file, setId, matchFieldId, fieldIds, restoreFieldIds))
   ipcMain.handle('workbooks:merge-apply', async (_event, token: string, resolutions: Record<string, 'excel' | 'set'>) => applyWorkbookMerge(token, resolutions))
   ipcMain.handle('assets:import', async () => {
     const result = await dialog.showOpenDialog(win!, { title: 'Aggiungi asset al progetto', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Immagini', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'avif'] }] })

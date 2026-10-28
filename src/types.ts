@@ -97,6 +97,12 @@ export interface MergeFieldChange extends Omit<MergeFieldConflict, 'conflictId'>
   source: 'excel' | 'set'
 }
 
+export interface MergeRestoreField {
+  id: string
+  header: string
+  type: NonNullable<ColumnDefinition['type']>
+}
+
 export interface WorkbookMergePreview {
   token: string
   setId: string
@@ -106,6 +112,8 @@ export interface WorkbookMergePreview {
   matchFields: Array<{ id: string; label: string }>
   importFields: Array<{ id: string; label: string }>
   selectedFieldIds: string[]
+  restoreFields: MergeRestoreField[]
+  restoredFieldIds: string[]
   matchedRows: number
   unchangedRows: number
   newTitles: string[]
@@ -162,7 +170,7 @@ export interface CardCmsApi {
   saveVariables: (variables: ProjectVariable[]) => Promise<ProjectSnapshot>
   selectSet: (id: string) => Promise<ProjectSnapshot>
   importWorkbooks: (plans: ImportPlan[]) => Promise<ProjectSnapshot>
-  previewWorkbookMerge: (file: string, setId: string, matchFieldId?: string, fieldIds?: string[]) => Promise<WorkbookMergePreview>
+  previewWorkbookMerge: (file: string, setId: string, matchFieldId?: string, fieldIds?: string[], restoreFieldIds?: string[]) => Promise<WorkbookMergePreview>
   applyWorkbookMerge: (token: string, resolutions: Record<string, 'excel' | 'set'>) => Promise<ProjectSnapshot>
   createSet: (name: string) => Promise<ProjectSnapshot>
   scanWorkbooks: () => Promise<WorkbookInfo[]>

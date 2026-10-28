@@ -57,7 +57,7 @@ I pacchetti vengono generati in `dist/`.
 
 - Apri più progetti Tabletop Creator e scegli quale usare all’avvio.
 - Importa più file Excel: ogni file diventa un set indipendente. Durante l’importazione scegli i campi da mantenere.
-- Reimporta un foglio già collegato a un set: scegli i campi da importare, abbina le carte tramite una colonna, applica gli aggiornamenti Excel non in conflitto e scegli per campo nei conflitti; le carte assenti dal foglio restano nel set.
+- Reimporta un foglio già collegato a un set: scegli i campi da importare e ripristina le colonne presenti nel foglio ma rimosse dal set, abbina le carte tramite una colonna, applica gli aggiornamenti Excel non in conflitto e scegli per campo nei conflitti; le carte assenti dal foglio restano nel set.
 - Crea campi di testo, testo lungo, numero, select, colore, immagine e variabile; riordina le colonne e salva le modifiche prima di applicarle.
 - Nascondi campi nell’editor senza escluderli dall’Excel e configura regole che compilano valori automaticamente in base ad altri campi (ad esempio colore predefinito quando un’icona è assegnata).
 - Assegna tag e stato alle carte, cerca e filtra per campi e ordina l’archivio.
