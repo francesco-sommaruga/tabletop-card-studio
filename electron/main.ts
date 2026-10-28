@@ -293,10 +293,11 @@ async function gitAction(action: () => Promise<void>): Promise<GitStatus> {
 }
 
 async function createWindow() {
+  const iconPath = path.join(__dirname, app.isPackaged ? '../../renderer-dist/tabletop-card-studio.png' : '../../public/tabletop-card-studio.png')
   win = new BrowserWindow({
     width: 1440, height: 940, minWidth: 1080, minHeight: 700,
     backgroundColor: '#f4f0e8', title: 'Tabletop Card Studio',
-    icon: path.join(__dirname, '../../renderer-dist/tabletop-card-studio.png'),
+    icon: iconPath,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
   })
   if (process.env.VITE_DEV_SERVER_URL) await win.loadURL(process.env.VITE_DEV_SERVER_URL)
