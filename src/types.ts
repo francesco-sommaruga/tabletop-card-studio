@@ -10,13 +10,24 @@ export interface Card {
   updatedAt: string
 }
 
+export type RuleOperator = 'is_set' | 'is_empty' | 'equals' | 'not_equals' | 'contains'
+
+export interface ConditionalValueRule {
+  sourceFieldId: string
+  operator: RuleOperator
+  matchValue?: string
+  value: string
+}
+
 export interface ColumnDefinition {
   id: string
   header: string
   fieldId: string
-  type?: 'text' | 'number' | 'select' | 'image' | 'longtext' | 'variable'
+  type?: 'text' | 'number' | 'select' | 'image' | 'longtext' | 'variable' | 'color'
   options?: string[]
   variableTags?: string[]
+  hidden?: boolean
+  rules?: ConditionalValueRule[]
 }
 
 export interface ProjectSet {

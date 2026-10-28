@@ -5,6 +5,7 @@ import fs from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import ExcelJS from 'exceljs'
 import type { Card, ColumnDefinition, GitCommitSummary, GitFileStatus, GitStatus, ImportPlan, ProjectAsset, ProjectSet, ProjectSnapshot, ProjectSummary, ProjectVariable, WorkbookInfo } from '../src/types'
+import { resolveConditionalValues } from '../src/conditional'
 
 let win: BrowserWindow | null = null
 let activeProject = ''
@@ -83,7 +84,7 @@ async function scanWorkbooks(): Promise<WorkbookInfo[]> {
 }
 
 function guessFieldType(header: string): ColumnDefinition['type'] {
-  return /amount|quantit|costo|cost|speed|potenza|numero|count/i.test(header) ? 'number' : /text|effetto|description|descrizione|regole/i.test(header) ? 'longtext' : 'text'
+  return /color|colour|colore/i.test(header) ? 'color' : /amount|quantit|costo|cost|speed|potenza|numero|count/i.test(header) ? 'number' : /text|effetto|description|descrizione|regole/i.test(header) ? 'longtext' : 'text'
 }
 
 async function readPlannedWorkbook(filePath: string, plan: ImportPlan): Promise<ProjectSet> {
@@ -415,8 +416,9 @@ app.whenReady().then(() => {
     const worksheet = workbook.addWorksheet('Cards')
     worksheet.addRow(current.columns.map((column) => column.header))
     for (const card of current.cards) {
+      const values = resolveConditionalValues(current.columns, card).values
       worksheet.addRow(current.columns.map((column) => {
-        const value = column.fieldId === 'meta_title' ? card.title : column.fieldId === 'meta_quantity' ? card.quantity : column.fieldId === 'meta_status' ? card.status : column.fieldId === 'meta_tags' ? card.tags.join(', ') : (card.values[column.fieldId] ?? '')
+        const value = column.fieldId === 'meta_title' ? card.title : column.fieldId === 'meta_quantity' ? card.quantity : column.fieldId === 'meta_status' ? card.status : column.fieldId === 'meta_tags' ? card.tags.join(', ') : (values[column.fieldId] ?? '')
         const imageValue = String(value)
         const isWindowsPath = /^[a-z]:[\\/]/i.test(imageValue)
         return column.type === 'image' && value && !path.isAbsolute(imageValue) && !isWindowsPath ? path.resolve(activeProject, imageValue) : value

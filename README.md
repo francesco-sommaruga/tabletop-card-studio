@@ -57,13 +57,16 @@ I pacchetti vengono generati in `dist/`.
 
 - Apri più progetti Tabletop Creator e scegli quale usare all’avvio.
 - Importa più file Excel: ogni file diventa un set indipendente. Durante l’importazione scegli i campi da mantenere.
-- Crea campi di testo, testo lungo, numero, select e immagine; riordina le colonne e salva le modifiche prima di applicarle.
+- Crea campi di testo, testo lungo, numero, select, colore, immagine e variabile; riordina le colonne e salva le modifiche prima di applicarle.
+- Nascondi campi nell’editor senza escluderli dall’Excel e configura regole che compilano valori automaticamente in base ad altri campi (ad esempio colore predefinito quando un’icona è assegnata).
 - Assegna tag e stato alle carte, cerca e filtra per campi e ordina l’archivio.
 - Consulta statistiche per tag e proprietà, anche incrociando due campi e contando carte uniche o copie.
 - Crea e modifica le variabili di `data/variables.json`, assegna loro tag e limita i campi variabile ai tag scelti.
 - Gestisci gli asset del progetto e usa le variabili di Tabletop Creator nei campi testuali.
 - Esporta ogni set in un foglio `.xlsx` separato.
 - Collega un repository GitHub e gestisci commit, pull e push con le credenziali Git del computer.
+
+Per creare un valore automatico, apri **Campi e colonne**, espandi **Regole automatiche e visibilità** sul campo da compilare e aggiungi una regola. Per `play_area_1_icon:color`, imposta la sorgente su `play_area_1_icon`, la condizione su **è compilato** e il valore da assegnare, ad esempio `#D84A38`. Per associare colori diversi a valori diversi, aggiungi più regole: si applica la prima corrispondenza. Attiva **Nascondi nell’editor carte** per tenere il campo fuori dalla scheda; resterà presente nel foglio esportato.
 
 L’app salva i propri dati in `.tabletop-card-studio/` nella cartella del progetto aperto. Le immagini importate vengono copiate in `assets/card-studio/`. I fogli Excel originali non vengono modificati; l’esportazione crea un file `*-cms-export.xlsx`.
 
