@@ -1,6 +1,6 @@
 {
   "name": "tabletop-card-cms",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "Desktop CMS for tabletop card projects with configurable Excel export.",
   "author": "Tabletop Card Studio",
@@ -33,10 +33,29 @@
   "build": {
     "appId": "studio.tabletop.cardcms",
     "productName": "Tabletop Card Studio",
-    "files": ["renderer-dist/**/*", "dist-electron/**/*", "public/**/*", "package.json"],
-    "linux": { "target": ["AppImage"], "category": "Office", "icon": "public/tabletop-card-studio.png" },
-    "win": { "target": ["nsis"] },
-    "mac": { "target": ["dmg"] }
+    "files": [
+      "renderer-dist/**/*",
+      "dist-electron/**/*",
+      "public/**/*",
+      "package.json"
+    ],
+    "linux": {
+      "target": [
+        "AppImage"
+      ],
+      "category": "Office",
+      "icon": "public/tabletop-card-studio.png"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg"
+      ]
+    }
   },
   "overrides": {
     "uuid": "^11.1.1"
