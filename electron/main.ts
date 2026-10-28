@@ -75,6 +75,17 @@ function cardFieldValue(card: Card, fieldId: string): string {
 
 function mergeKey(value: string): string { return value.trim().toLocaleLowerCase() }
 
+function tabletopAssetReference(value: string): string {
+  const normalized = value.trim().replace(/\\/g, '/')
+  if (!normalized) return ''
+  const lower = normalized.toLocaleLowerCase()
+  const assetsMarker = lower.lastIndexOf('/assets/')
+  if (assetsMarker >= 0) return normalized.slice(assetsMarker + '/assets/'.length)
+  if (lower.startsWith('assets/')) return normalized.slice('assets/'.length)
+  if (normalized.startsWith('/') || /^[a-z]:\//i.test(normalized)) return path.posix.basename(normalized)
+  return normalized.replace(/^\.\//, '').replace(/^\/+/, '')
+}
+
 async function workbookInfo(filePath: string): Promise<WorkbookInfo> {
   const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.readFile(filePath)
@@ -372,7 +383,7 @@ async function scanAssets(): Promise<ProjectAsset[]> {
   await walk(assetRoot)
   const mimeFor: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.avif': 'image/avif' }
   return Promise.all(found.map(async (file) => {
-    const relative = path.relative(activeProject, file).split(path.sep).join('/')
+    const relative = path.relative(assetRoot, file).split(path.sep).join('/')
     const ext = path.extname(file).toLowerCase()
     let previewUrl = ''
     try {
@@ -606,6 +617,15 @@ app.whenReady().then(() => {
     return snapshot()
   })
   ipcMain.handle('sets:select', async (_event, id: string) => { if (sets.some((set) => set.id === id)) activeSetId = id; return snapshot() })
+  ipcMain.handle('sets:rename', async (_event, id: string, name: string) => {
+    const target = sets.find((set) => set.id === id)
+    const trimmedName = name.trim()
+    if (!target) throw new Error('Il set selezionato non esiste più.')
+    if (!trimmedName) throw new Error('Il nome del set non può essere vuoto.')
+    target.name = trimmedName
+    await persistSets()
+    return snapshot()
+  })
   ipcMain.handle('sets:create', async (_event, name: string) => {
     const set: ProjectSet = { id: `set_${crypto.randomUUID()}`, name: name.trim() || 'Nuovo set', cards: [], columns: structuredClone(defaultColumns) }
     sets.push(set)
@@ -649,18 +669,31 @@ app.whenReady().then(() => {
   ipcMain.handle('project:export', async () => {
     const current = activeSet()
     if (!activeProject || !current) return null
-    const slug = current.name.trim().replace(/[^a-z0-9-_]+/gi, '-').replace(/^-|-$/g, '') || 'set'
-    const file = path.join(activeProject, `${slug}-cms-export.xlsx`)
+    const setSlug = current.name.trim().toLocaleLowerCase().replace(/[^a-z0-9-_]+/gi, '-').replace(/^-|-$/g, '') || 'set'
+    const exportedAt = new Date()
+    const pad = (value: number) => String(value).padStart(2, '0')
+    const dateStamp = `${exportedAt.getFullYear()}-${pad(exportedAt.getMonth() + 1)}-${pad(exportedAt.getDate())}_${pad(exportedAt.getHours())}-${pad(exportedAt.getMinutes())}-${pad(exportedAt.getSeconds())}`
+    const exportDirectory = path.join(activeProject, 'exports')
+    await fs.mkdir(exportDirectory, { recursive: true })
+    let file = path.join(exportDirectory, `${setSlug}_${dateStamp}.xlsx`)
+    let collision = 2
+    while (existsSync(file)) file = path.join(exportDirectory, `${setSlug}_${dateStamp}_${collision++}.xlsx`)
     const workbook = new ExcelJS.Workbook()
+    const exportedAtLabel = exportedAt.toLocaleString('it-IT')
+    workbook.creator = 'Tabletop Card Studio'
+    workbook.lastModifiedBy = 'Tabletop Card Studio'
+    workbook.created = exportedAt
+    workbook.modified = exportedAt
+    workbook.title = current.name
+    workbook.subject = `Esportazione del set ${current.name} · ${exportedAtLabel}`
+    workbook.description = `Set: ${current.name}\nEsportato il: ${exportedAtLabel}`
     const worksheet = workbook.addWorksheet('Cards')
     worksheet.addRow(current.columns.map((column) => column.header))
     for (const card of current.cards) {
       const values = resolveConditionalValues(current.columns, card).values
       worksheet.addRow(current.columns.map((column) => {
         const value = column.fieldId === 'meta_title' ? card.title : column.fieldId === 'meta_quantity' ? card.quantity : column.fieldId === 'meta_status' ? card.status : column.fieldId === 'meta_tags' ? card.tags.join(', ') : (values[column.fieldId] ?? '')
-        const imageValue = String(value)
-        const isWindowsPath = /^[a-z]:[\\/]/i.test(imageValue)
-        return column.type === 'image' && value && !path.isAbsolute(imageValue) && !isWindowsPath ? path.resolve(activeProject, imageValue) : value
+        return column.type === 'image' && value ? tabletopAssetReference(String(value)) : value
       }))
     }
     await workbook.xlsx.writeFile(file)

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, ArrowDownToLine, ArrowRight, BarChart3, BookOpen, Braces, Check, ChevronDown, CircleHelp, CircleAlert, Columns3, Download, ExternalLink, EyeOff, FileImage, FileSpreadsheet, FolderPlus, GitBranch, Github, GripVertical, Images, MoreHorizontal, Palette, Plus, RefreshCw, Search, Sparkles, Tag, Upload, X } from 'lucide-react'
+import { Archive, ArrowDownToLine, ArrowRight, BarChart3, BookOpen, Braces, Check, ChevronDown, CircleHelp, CircleAlert, Columns3, Download, ExternalLink, EyeOff, FileImage, FileSpreadsheet, FolderPlus, GitBranch, Github, GripVertical, Images, MoreHorizontal, Palette, Pencil, Plus, RefreshCw, Search, Sparkles, Tag, Upload, X } from 'lucide-react'
 import type { Card, CardStatus, ColumnDefinition, GitStatus, ImportPlan, ProjectAsset, ProjectSnapshot, ProjectSummary, ProjectVariable, WorkbookMergePreview, WorkbookInfo } from './types'
 import { resolveConditionalValues } from './conditional'
 
@@ -12,6 +12,15 @@ const metaFields = [
   { id: 'meta_tags', label: 'Tag CMS' },
 ]
 const slug = (value: string) => `field_${value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'nuovo_campo'}`
+function normalizeAssetReference(value: string) {
+  const normalized = value.trim().replace(/\\/g, '/')
+  const lower = normalized.toLocaleLowerCase()
+  const marker = lower.lastIndexOf('/assets/')
+  if (marker >= 0) return normalized.slice(marker + '/assets/'.length)
+  if (lower.startsWith('assets/')) return normalized.slice('assets/'.length)
+  if (normalized.startsWith('/') || /^[a-z]:\//i.test(normalized)) return normalized.split('/').filter(Boolean).pop() ?? ''
+  return normalized.replace(/^\.\//, '').replace(/^\/+/, '')
+}
 const blankCard = (): Card => ({ id: `card_${crypto.randomUUID()}`, title: 'Nuova carta', status: 'Idea', tags: [], quantity: 1, values: {}, updatedAt: new Date().toISOString() })
 
 function App() {
@@ -29,6 +38,7 @@ function App() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
   const [importOpen, setImportOpen] = useState(false)
   const [mergePreview, setMergePreview] = useState<WorkbookMergePreview | null>(null)
+  const [renameTarget, setRenameTarget] = useState<{ id: string; name: string } | null>(null)
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null)
   const [fieldsDirty, setFieldsDirty] = useState(false)
 
@@ -121,7 +131,12 @@ function App() {
   const switchProject = async () => { if (!confirmDiscardFields()) return; await refreshProjects(); setSnapshot(null); setSelected(null); setView('cards') }
   const addCard = () => { const next = blankCard(); updateCards([next, ...cards]); setSelected(next) }
   const saveCard = (next: Card) => { next = resolveConditionalValues(columns, next); updateCards(cards.map((card) => card.id === next.id ? { ...next, updatedAt: new Date().toISOString() } : card)); setSelected(null); setToast('Carta aggiornata') }
-  const exportCards = async () => { const result = await window.cardCms.exportExcel(); if (result) setToast(`Esportate ${result.count} carte in ${result.path.split('/').pop()}`) }
+  const exportCards = async () => { const result = await window.cardCms.exportExcel(); if (result) setToast(`Esportate ${result.count} carte in ${result.path.split(/[\\/]/).pop()}`) }
+  const saveSetName = async (name: string) => {
+    if (!renameTarget) return
+    try { const next = await window.cardCms.renameSet(renameTarget.id, name); setSnapshot(next); setRenameTarget(null); setToast('Nome del set aggiornato') }
+    catch (error) { setToast(error instanceof Error ? error.message : 'Impossibile rinominare il set') }
+  }
   const createSet = async () => { if (!snapshot || !confirmDiscardFields()) return; const result = await window.cardCms.createSet(`Set ${snapshot.sets.length + 1}`); setSnapshot(result); setView('cards'); setToast('Nuovo set creato') }
   const chooseSet = async (id: string) => { if (!confirmDiscardFields()) return; const result = await window.cardCms.selectSet(id); setSnapshot(result); resetListControls() }
   const refreshWorkbooks = async () => { if (!snapshot || !confirmDiscardFields()) return; const workbooks = await window.cardCms.scanWorkbooks(); setSnapshot({ ...snapshot, workbooks }); setImportOpen(true) }
@@ -145,7 +160,7 @@ function App() {
       <div className="side-caption project-switch-caption"><span>PROGETTO</span><button onClick={switchProject} title="Cambia progetto"><MoreHorizontal size={15} /></button></div>
       <div className="sidebar-project-name" title={snapshot.projectPath}>{snapshot.projectName}</div>
       <div className="side-caption sets-caption"><span>SET DI CARTE <b>{snapshot.sets.length}</b></span><button onClick={createSet} title="Crea un set"><Plus size={14} /></button></div>
-      <div className="set-list">{snapshot.sets.map((set) => <button className={`set-nav ${set.id === snapshot.activeSetId ? 'active' : ''}`} key={set.id} onClick={() => void chooseSet(set.id)}><span className="set-nav-icon"><BookOpen size={15} /></span><span className="set-nav-copy"><strong>{set.name}</strong><small>{set.sourceFile || 'Creato qui'}</small></span><span className="set-count">{set.cardCount}</span></button>)}{!snapshot.sets.length && <div className="set-empty-note">Importa un foglio per creare il primo set.</div>}</div>
+      <div className="set-list">{snapshot.sets.map((set) => <div className="set-nav-row" key={set.id}><button className={`set-nav ${set.id === snapshot.activeSetId ? 'active' : ''}`} onClick={() => void chooseSet(set.id)}><span className="set-nav-icon"><BookOpen size={15} /></span><span className="set-nav-copy"><strong>{set.name}</strong><small>{set.sourceFile || 'Creato qui'}</small></span><span className="set-count">{set.cardCount}</span></button><button className="set-nav-rename" aria-label={`Rinomina il set ${set.name}`} title={`Rinomina ${set.name}`} onClick={() => { if (confirmDiscardFields()) setRenameTarget({ id: set.id, name: set.name }) }}><Pencil size={13}/></button></div>)}{!snapshot.sets.length && <div className="set-empty-note">Importa un foglio per creare il primo set.</div>}</div>
       <nav className="sidebar-navigation" aria-label="Navigazione progetto e set">
         <section className="sidebar-nav-group" aria-label="Set corrente">
           <div className="side-caption nav-group-heading">SET CORRENTE</div>
@@ -179,6 +194,7 @@ function App() {
     {selected && snapshot && <CardEditor card={selected} columns={columns} assets={snapshot.assets} variables={snapshot.variables} onClose={() => setSelected(null)} onSave={saveCard} onDelete={() => { updateCards(cards.filter((card) => card.id !== selected.id)); setSelected(null); setToast('Carta rimossa dal set') }} />}
       {importOpen && snapshot && <ImportWizard workbooks={snapshot.workbooks} sets={snapshot.sets} onRefresh={async () => { const found = await window.cardCms.scanWorkbooks(); setSnapshot({ ...snapshot, workbooks: found }); return found }} onClose={() => setImportOpen(false)} onImport={finishImport} onMerge={openMergePreview} />}
       {mergePreview && <MergeWizard preview={mergePreview} onPreview={(file, setId, matchFieldId, fieldIds, restoreFieldIds) => window.cardCms.previewWorkbookMerge(file, setId, matchFieldId, fieldIds, restoreFieldIds)} onClose={() => setMergePreview(null)} onApply={applyMerge} />}
+      {renameTarget && <RenameSetDialog name={renameTarget.name} onClose={() => setRenameTarget(null)} onSave={saveSetName} />}
     {toast && <div className="toast"><Check size={15} />{toast}</div>}
   </div>
 }
@@ -257,6 +273,12 @@ function MergeWizard({ preview, onPreview, onClose, onApply }: { preview: Workbo
     </div><footer className="merge-footer"><span>{unresolvedCount ? `${unresolvedCount} conflitti da risolvere` : current.duplicateKeys.length ? 'Scegli una chiave univoca per continuare' : !canApplyFields ? 'Seleziona almeno un campo da importare' : 'Le carte non presenti in Excel non verranno eliminate'}</span><div><button className="button button-quiet" onClick={onClose}>Annulla</button><button className="button button-primary" disabled={loading || !hasWork || !canApplyFields || current.duplicateKeys.length > 0 || unresolvedCount > 0} onClick={() => onApply(current.token, resolutions)}><Check size={15}/>Applica merge</button></div></footer></section></>
 }
 
+function RenameSetDialog({ name, onClose, onSave }: { name: string; onClose: () => void; onSave: (name: string) => void }) {
+  const [value, setValue] = useState(name)
+  const [error, setError] = useState('')
+  return <><button className="scrim" aria-label="Chiudi rinomina set" onClick={onClose}/><section className="rename-set-panel" role="dialog" aria-modal="true" aria-labelledby="rename-set-title"><div className="editor-head"><div><div className="eyebrow"><span className="eyebrow-line"/>ORGANIZZAZIONE SET</div><h2 id="rename-set-title">Rinomina il set.</h2></div><button className="icon-button close-editor" onClick={onClose} aria-label="Chiudi"><X size={18}/></button></div><form onSubmit={(event) => { event.preventDefault(); const next = value.trim(); if (!next) { setError('Inserisci un nome per il set.'); return } onSave(next) }}><label htmlFor="rename-set-input">NOME DEL SET</label><input id="rename-set-input" autoFocus maxLength={80} value={value} onChange={(event) => { setValue(event.target.value); setError('') }}/>{error && <small className="rename-set-error">{error}</small>}<div><button type="button" className="button button-quiet" onClick={onClose}>Annulla</button><button type="submit" className="button button-primary"><Check size={14}/>Salva nome</button></div></form></section></>
+}
+
 function AssetsPage({ assets, onAdd }: { assets: ProjectAsset[]; onAdd: () => void }) {
   return <div className="page-content assets-page"><div className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line"/>LIBRERIA DEL PROGETTO</div><h1>Asset<span className="heading-period">.</span></h1><p>Immagini raccolte nella cartella `assets` e pronte da assegnare alle carte.</p></div><button className="button button-primary add-button" onClick={onAdd}><Plus size={16}/>Aggiungi immagini</button></div><div className="asset-library-meta"><div><Images size={17}/><strong>{assets.length}</strong><span>immagini disponibili</span></div><span>Le nuove immagini vengono copiate in `assets/card-studio`</span></div>{assets.length ? <div className="asset-grid">{assets.map((asset) => <article className="asset-card" key={asset.path}><div className="asset-preview">{asset.previewUrl ? <img src={asset.previewUrl} alt={asset.name}/> : <FileImage size={28}/>}</div><div className="asset-card-info"><strong title={asset.name}>{asset.name}</strong><small title={asset.path}>{asset.path}</small></div></article>)}</div> : <div className="asset-empty"><Images size={24}/><strong>La libreria è vuota.</strong><span>Aggiungi illustrazioni, icone o altri file immagine del progetto.</span><button className="button button-quiet" onClick={onAdd}><Plus size={15}/>Aggiungi il primo asset</button></div>}</div>
 }
@@ -314,7 +336,7 @@ function VariableInsert({ variables, onInsert }: { variables: ProjectVariable[];
 function ImageField({ assets, value, onChange, fieldName }: { assets: ProjectAsset[]; value: string; onChange: (value: string) => void; fieldName: string }) {
   const [pickerOpen, setPickerOpen] = useState(false)
   const [query, setQuery] = useState('')
-  const selected = assets.find((asset) => asset.path === value)
+  const selected = assets.find((asset) => asset.path === normalizeAssetReference(value))
   const filteredAssets = useMemo(() => {
     const term = query.trim().toLocaleLowerCase()
     return assets.filter((asset) => !term || `${asset.name} ${asset.path}`.toLocaleLowerCase().includes(term))
@@ -327,7 +349,7 @@ function ImageField({ assets, value, onChange, fieldName }: { assets: ProjectAss
       {selected?.previewUrl ? <img className="image-picker-preview" src={selected.previewUrl} alt={`Anteprima: ${selected.name}`}/> : <div className="image-picker-preview image-picker-placeholder"><FileImage size={22}/><span>{value ? 'Immagine non trovata' : 'Nessuna immagine'}</span></div>}
       <div className="image-picker-current-details"><strong title={selected?.path ?? value}>{displayName || 'Assegna un’immagine'}</strong><small>{selected ? 'Libreria immagini del progetto' : assets.length ? 'Scegli dalla libreria del progetto' : 'La libreria non contiene immagini'}</small><div className="image-picker-actions"><button type="button" className="image-picker-open" onClick={() => setPickerOpen((open) => !open)}><Images size={14}/>{pickerOpen ? 'Chiudi libreria' : selected ? 'Cambia immagine' : 'Scegli immagine'}</button>{value && <button type="button" className="image-picker-clear" onClick={() => { onChange(''); closePicker() }}><X size={13}/>Rimuovi</button>}</div></div>
     </div>
-    {pickerOpen && <div className="image-picker-panel"><label className="image-picker-search"><Search size={15}/><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === 'Escape' && closePicker()} placeholder="Cerca per nome o percorso…" aria-label={`Cerca immagini per ${fieldName}`}/><span>{filteredAssets.length} / {assets.length}</span></label>{filteredAssets.length ? <div className="image-picker-grid" aria-label="Risultati nella libreria immagini">{filteredAssets.map((asset) => <button type="button" key={asset.path} className={`image-picker-option ${asset.path === value ? 'selected' : ''}`} onClick={() => chooseAsset(asset)} title={asset.path} aria-pressed={asset.path === value}>{asset.previewUrl ? <img src={asset.previewUrl} alt=""/> : <span className="image-picker-option-placeholder"><FileImage size={18}/></span>}<span className="image-picker-option-name">{asset.name}</span>{asset.path === value && <Check size={14}/>}</button>)}</div> : <div className="image-picker-empty">{assets.length ? 'Nessuna immagine corrisponde alla ricerca.' : 'Aggiungi prima le immagini nella sezione Asset di progetto.'}</div>}</div>}
+    {pickerOpen && <div className="image-picker-panel"><label className="image-picker-search"><Search size={15}/><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => event.key === 'Escape' && closePicker()} placeholder="Cerca per nome o percorso…" aria-label={`Cerca immagini per ${fieldName}`}/><span>{filteredAssets.length} / {assets.length}</span></label>{filteredAssets.length ? <div className="image-picker-grid" aria-label="Risultati nella libreria immagini">{filteredAssets.map((asset) => { const isSelected = normalizeAssetReference(value) === asset.path; return <button type="button" key={asset.path} className={`image-picker-option ${isSelected ? 'selected' : ''}`} onClick={() => chooseAsset(asset)} title={asset.path} aria-pressed={isSelected}>{asset.previewUrl ? <img src={asset.previewUrl} alt=""/> : <span className="image-picker-option-placeholder"><FileImage size={18}/></span>}<span className="image-picker-option-name">{asset.name}</span>{isSelected && <Check size={14}/>}</button>})}</div> : <div className="image-picker-empty">{assets.length ? 'Nessuna immagine corrisponde alla ricerca.' : 'Aggiungi prima le immagini nella sezione Asset di progetto.'}</div>}</div>}
   </div>
 }
 

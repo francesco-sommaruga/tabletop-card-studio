@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('cardCms', {
   saveColumns: (columns: ColumnDefinition[]) => ipcRenderer.invoke('columns:save', columns) as Promise<void>,
   saveVariables: (variables: ProjectVariable[]) => ipcRenderer.invoke('variables:save', variables) as Promise<ProjectSnapshot>,
   selectSet: (id: string) => ipcRenderer.invoke('sets:select', id) as Promise<ProjectSnapshot>,
+  renameSet: (id: string, name: string) => ipcRenderer.invoke('sets:rename', id, name) as Promise<ProjectSnapshot>,
   importWorkbooks: (plans: ImportPlan[]) => ipcRenderer.invoke('workbooks:import', plans) as Promise<ProjectSnapshot>,
   previewWorkbookMerge: (file: string, setId: string, matchFieldId?: string, fieldIds?: string[], restoreFieldIds?: string[]) => ipcRenderer.invoke('workbooks:merge-preview', file, setId, matchFieldId, fieldIds, restoreFieldIds) as Promise<WorkbookMergePreview>,
   applyWorkbookMerge: (token: string, resolutions: Record<string, 'excel' | 'set'>) => ipcRenderer.invoke('workbooks:merge-apply', token, resolutions) as Promise<ProjectSnapshot>,

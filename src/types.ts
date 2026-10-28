@@ -169,6 +169,7 @@ export interface CardCmsApi {
   saveColumns: (columns: ColumnDefinition[]) => Promise<void>
   saveVariables: (variables: ProjectVariable[]) => Promise<ProjectSnapshot>
   selectSet: (id: string) => Promise<ProjectSnapshot>
+  renameSet: (id: string, name: string) => Promise<ProjectSnapshot>
   importWorkbooks: (plans: ImportPlan[]) => Promise<ProjectSnapshot>
   previewWorkbookMerge: (file: string, setId: string, matchFieldId?: string, fieldIds?: string[], restoreFieldIds?: string[]) => Promise<WorkbookMergePreview>
   applyWorkbookMerge: (token: string, resolutions: Record<string, 'excel' | 'set'>) => Promise<ProjectSnapshot>
