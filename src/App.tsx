@@ -129,7 +129,7 @@ function App() {
 
   return <div className="app-shell">
     {snapshot && <aside className="sidebar">
-      <div className="brand"><div className="brand-mark"><img src="/tabletop-mark.svg" alt="" /></div><div><div className="brand-name">TABLETOP</div><div className="brand-sub">CARD STUDIO</div></div></div>
+      <div className="brand"><img className="brand-logo" src="/tabletop-card-studio-logo.svg" alt="Tabletop Card Studio" /></div>
       <div className="side-caption project-switch-caption"><span>PROGETTO</span><button onClick={switchProject} title="Cambia progetto"><MoreHorizontal size={15} /></button></div>
       <div className="sidebar-project-name" title={snapshot.projectPath}>{snapshot.projectName}</div>
       <div className="side-caption sets-caption"><span>SET DI CARTE <b>{snapshot.sets.length}</b></span><button onClick={createSet} title="Crea un set"><Plus size={14} /></button></div>
