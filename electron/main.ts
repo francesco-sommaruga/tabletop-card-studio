@@ -4,7 +4,7 @@ import path from 'node:path'
 import fs from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import ExcelJS from 'exceljs'
-import type { Card, ColumnDefinition, GitCommitSummary, GitFileStatus, GitStatus, ImportPlan, ProjectAsset, ProjectSet, ProjectSnapshot, ProjectSummary, ProjectVariable, WorkbookInfo } from '../src/types'
+import type { Card, ColumnDefinition, GitCommitSummary, GitFileStatus, GitStatus, ImportPlan, MergeFieldChange, MergeFieldConflict, ProjectAsset, ProjectSet, ProjectSnapshot, ProjectSummary, ProjectVariable, WorkbookInfo, WorkbookMergePreview } from '../src/types'
 import { resolveConditionalValues } from '../src/conditional'
 
 let win: BrowserWindow | null = null
@@ -15,6 +15,7 @@ let activeSetId: string | null = null
 let workbooks: WorkbookInfo[] = []
 let assets: ProjectAsset[] = []
 let variables: ProjectVariable[] = []
+const pendingMerges = new Map<string, { setId: string; matchFieldId: string; incoming: Card[]; importedFieldIds: string[] }>()
 const dataDirName = '.tabletop-card-studio'
 const defaultColumns: ColumnDefinition[] = [
   { id: 'column_title', header: 'title', fieldId: 'meta_title', type: 'text' },
@@ -56,6 +57,16 @@ function simpleCellText(value: ExcelJS.CellValue | undefined): string {
   if (typeof value === 'object' && 'result' in value) return String(value.result ?? '')
   return String(value)
 }
+
+function cardFieldValue(card: Card, fieldId: string): string {
+  if (fieldId === 'meta_title') return card.title
+  if (fieldId === 'meta_quantity') return String(card.quantity)
+  if (fieldId === 'meta_status') return card.status
+  if (fieldId === 'meta_tags') return card.tags.join(', ')
+  return card.values[fieldId] ?? ''
+}
+
+function mergeKey(value: string): string { return value.trim().toLocaleLowerCase() }
 
 async function workbookInfo(filePath: string): Promise<WorkbookInfo> {
   const workbook = new ExcelJS.Workbook()
@@ -125,7 +136,187 @@ async function readPlannedWorkbook(filePath: string, plan: ImportPlan): Promise<
       updatedAt: new Date().toISOString(),
     })
   }
-  return { id: `set_${crypto.randomUUID()}`, name: plan.name.trim() || path.parse(plan.file).name, sourceFile: path.basename(plan.file), cards, columns }
+  const importMatchFieldId = titleHeader ? 'meta_title' : columns[0]?.fieldId
+  const importBaseline = cards.map((card) => ({ cardId: card.id, values: Object.fromEntries(columns.map((column) => [column.fieldId, cardFieldValue(card, column.fieldId)])) }))
+  return { id: `set_${crypto.randomUUID()}`, name: plan.name.trim() || path.parse(plan.file).name, sourceFile: path.basename(plan.file), cards, columns, importBaseline, importMatchFieldId }
+}
+
+async function readWorkbookRowsForSet(filePath: string, set: ProjectSet): Promise<{ cards: Card[]; importedFieldIds: string[] }> {
+  const workbook = new ExcelJS.Workbook()
+  await workbook.xlsx.readFile(filePath)
+  const sheet = workbook.worksheets[0]
+  const byHeader = new Map(set.columns.map((column) => [column.header.trim().toLocaleLowerCase(), column]))
+  const entries: Array<{ index: number; column: ColumnDefinition }> = []
+  sheet.getRow(1).eachCell({ includeEmpty: true }, (cell, index) => {
+    const column = byHeader.get(cell.text.trim().toLocaleLowerCase())
+    if (column && !entries.some((entry) => entry.column.fieldId === column.fieldId)) entries.push({ index, column })
+  })
+  const importedFieldIds = [...new Set(entries.map(({ column }) => column.fieldId))]
+  if (!entries.length) throw new Error('Il foglio non contiene intestazioni riconosciute dal set.')
+  const cards: Card[] = []
+  for (let rowNumber = 2; rowNumber <= sheet.rowCount; rowNumber += 1) {
+    const row = sheet.getRow(rowNumber)
+    const values: Record<string, string> = {}
+    for (const { index, column } of entries) values[column.fieldId] = simpleCellText(row.getCell(index).value)
+    if (!Object.values(values).some((value) => value.trim())) continue
+    const title = values.meta_title?.trim() || `Carta ${cards.length + 1}`
+    const parsedQuantity = Number(values.meta_quantity ?? 1)
+    cards.push({
+      id: `incoming_${crypto.randomUUID()}`,
+      title,
+      status: 'Idea',
+      tags: [],
+      quantity: Number.isFinite(parsedQuantity) && parsedQuantity > 0 ? parsedQuantity : 1,
+      values,
+      updatedAt: new Date().toISOString(),
+    })
+  }
+  return { cards, importedFieldIds }
+}
+
+async function previewWorkbookMerge(file: string, setId: string, requestedMatchFieldId?: string): Promise<WorkbookMergePreview> {
+  const set = sets.find((item) => item.id === setId)
+  if (!set) throw new Error('Il set da aggiornare non esiste più.')
+  if (set.sourceFile !== path.basename(file)) throw new Error('Questo foglio non è collegato al set selezionato.')
+  const filePath = path.join(activeProject, path.basename(file))
+  const { cards: incoming, importedFieldIds } = await readWorkbookRowsForSet(filePath, set)
+  const matchFields = set.columns.filter((column, index, all) => importedFieldIds.includes(column.fieldId) && all.findIndex((candidate) => candidate.fieldId === column.fieldId) === index).map((column) => ({ id: column.fieldId, label: column.header }))
+  if (!matchFields.length) throw new Error('Non trovo colonne del foglio corrispondenti ai campi del set.')
+  const matchFieldId = matchFields.some((field) => field.id === requestedMatchFieldId)
+    ? requestedMatchFieldId!
+    : matchFields.some((field) => field.id === set.importMatchFieldId)
+      ? set.importMatchFieldId!
+      : matchFields.find((field) => field.id === 'meta_title')?.id ?? matchFields[0].id
+
+  const baselineByCardId = new Map((set.importBaseline ?? []).map((row) => [row.cardId, row.values]))
+  const legacyBaseline = !set.importBaseline?.length
+  const existingByKey = new Map<string, Card>()
+  const existingKeyCounts = new Map<string, number>()
+  for (const card of set.cards) {
+    const baseline = baselineByCardId.get(card.id)
+    const keyValue = baseline && Object.prototype.hasOwnProperty.call(baseline, matchFieldId) ? baseline[matchFieldId] : cardFieldValue(card, matchFieldId)
+    const key = mergeKey(keyValue)
+    if (!key) continue
+    existingKeyCounts.set(key, (existingKeyCounts.get(key) ?? 0) + 1)
+    existingByKey.set(key, card)
+  }
+  const incomingKeyCounts = new Map<string, number>()
+  for (const card of incoming) {
+    const key = mergeKey(cardFieldValue(card, matchFieldId))
+    incomingKeyCounts.set(key, (incomingKeyCounts.get(key) ?? 0) + 1)
+  }
+  const duplicateKeys = [...new Set([
+    ...[...existingKeyCounts].filter(([, count]) => count > 1).map(([key]) => key),
+    ...[...incomingKeyCounts].filter(([, count]) => count > 1).map(([key]) => key),
+    ...[...incomingKeyCounts.keys()].filter((key) => !key),
+  ])]
+  const duplicateSet = new Set(duplicateKeys)
+  const conflicts: MergeFieldConflict[] = []
+  const automaticChanges: MergeFieldChange[] = []
+  const preservedLocalChanges: MergeFieldChange[] = []
+  const newTitles: string[] = []
+  const seenCards = new Set<string>()
+  let matchedRows = 0
+  let unchangedRows = 0
+
+  for (const incomingCard of incoming) {
+    const key = mergeKey(cardFieldValue(incomingCard, matchFieldId))
+    if (!key || duplicateSet.has(key)) continue
+    const current = existingByKey.get(key)
+    if (!current) { newTitles.push(incomingCard.title); continue }
+    matchedRows += 1
+    seenCards.add(current.id)
+    const baseline = baselineByCardId.get(current.id)
+    let changed = false
+    for (const fieldId of importedFieldIds) {
+      const currentValue = cardFieldValue(current, fieldId)
+      const incomingValue = cardFieldValue(incomingCard, fieldId)
+      const header = set.columns.find((column) => column.fieldId === fieldId)?.header ?? fieldId
+      if (currentValue === incomingValue) continue
+      changed = true
+      const hasBaselineValue = baseline && Object.prototype.hasOwnProperty.call(baseline, fieldId)
+      const baselineValue = hasBaselineValue ? baseline[fieldId] : currentValue
+      if (legacyBaseline || !hasBaselineValue) {
+        conflicts.push({ conflictId: `${current.id}::${fieldId}`, cardId: current.id, cardTitle: current.title, fieldId, header, currentValue, incomingValue })
+        continue
+      }
+      const currentChanged = currentValue !== baselineValue
+      const incomingChanged = incomingValue !== baselineValue
+      if (currentChanged && incomingChanged) conflicts.push({ conflictId: `${current.id}::${fieldId}`, cardId: current.id, cardTitle: current.title, fieldId, header, currentValue, incomingValue })
+      else if (incomingChanged) automaticChanges.push({ cardId: current.id, cardTitle: current.title, fieldId, header, currentValue, incomingValue, source: 'excel' })
+      else preservedLocalChanges.push({ cardId: current.id, cardTitle: current.title, fieldId, header, currentValue, incomingValue, source: 'set' })
+    }
+    if (!changed) unchangedRows += 1
+  }
+  const missingTitles = set.cards.filter((card) => !seenCards.has(card.id)).map((card) => card.title)
+  const token = crypto.randomUUID()
+  pendingMerges.clear()
+  pendingMerges.set(token, { setId, matchFieldId, incoming, importedFieldIds })
+  return { token, setId, setName: set.name, file: path.basename(file), matchFieldId, matchFields, matchedRows, unchangedRows, newTitles, missingTitles, automaticChanges, preservedLocalChanges, conflicts, duplicateKeys, legacyBaseline }
+}
+
+async function applyWorkbookMerge(token: string, resolutions: Record<string, 'excel' | 'set'>): Promise<ProjectSnapshot> {
+  const pending = pendingMerges.get(token)
+  if (!pending) throw new Error('La prévisualizzazione del merge è scaduta. Riapri il confronto con il foglio.')
+  const set = sets.find((item) => item.id === pending.setId)
+  if (!set) throw new Error('Il set da aggiornare non esiste più.')
+  const baselineByCardId = new Map((set.importBaseline ?? []).map((row) => [row.cardId, { ...row.values }]))
+  const existingByKey = new Map<string, Card>()
+  for (const card of set.cards) {
+    const baseline = baselineByCardId.get(card.id)
+    const keyValue = baseline && Object.prototype.hasOwnProperty.call(baseline, pending.matchFieldId) ? baseline[pending.matchFieldId] : cardFieldValue(card, pending.matchFieldId)
+    const key = mergeKey(keyValue)
+    if (key) existingByKey.set(key, card)
+  }
+  const addedCards: Card[] = []
+  const now = new Date().toISOString()
+  for (const incoming of pending.incoming) {
+    const key = mergeKey(cardFieldValue(incoming, pending.matchFieldId))
+    if (!key) continue
+    const current = existingByKey.get(key)
+    if (!current) {
+      const added = { ...incoming, id: `card_${crypto.randomUUID()}`, status: 'Idea' as const, tags: [], updatedAt: now }
+      addedCards.push(added)
+      baselineByCardId.set(added.id, Object.fromEntries(pending.importedFieldIds.map((fieldId) => [fieldId, cardFieldValue(incoming, fieldId)])))
+      continue
+    }
+    const baseline = baselineByCardId.get(current.id) ?? {}
+    const next: Card = { ...current, values: { ...current.values } }
+    for (const fieldId of pending.importedFieldIds) {
+      const currentValue = cardFieldValue(current, fieldId)
+      const incomingValue = cardFieldValue(incoming, fieldId)
+      const fieldChanged = currentValue !== incomingValue
+      const conflictKey = `${current.id}::${fieldId}`
+      if (fieldChanged && resolutions[conflictKey] === 'excel') {
+        if (fieldId === 'meta_title') next.title = incoming.title
+        else if (fieldId === 'meta_quantity') next.quantity = incoming.quantity
+        else if (!['meta_status', 'meta_tags'].includes(fieldId)) next.values[fieldId] = incoming.values[fieldId] ?? ''
+      } else if (fieldChanged && !Object.prototype.hasOwnProperty.call(baseline, fieldId) && currentValue === '' && !Object.prototype.hasOwnProperty.call(resolutions, conflictKey)) {
+        // Legacy imported sets have no prior baseline; fill empty fields while preserving non-empty local values.
+        if (fieldId === 'meta_title') next.title = incoming.title
+        else if (fieldId === 'meta_quantity') next.quantity = incoming.quantity
+        else if (!['meta_status', 'meta_tags'].includes(fieldId)) next.values[fieldId] = incoming.values[fieldId] ?? ''
+      } else if (fieldChanged && Object.prototype.hasOwnProperty.call(baseline, fieldId) && currentValue === baseline[fieldId] && cardFieldValue(incoming, fieldId) !== baseline[fieldId]) {
+        if (fieldId === 'meta_title') next.title = incoming.title
+        else if (fieldId === 'meta_quantity') next.quantity = incoming.quantity
+        else if (!['meta_status', 'meta_tags'].includes(fieldId)) next.values[fieldId] = incoming.values[fieldId] ?? ''
+      }
+      baseline[fieldId] = incomingValue
+    }
+    if (JSON.stringify(next) !== JSON.stringify(current)) next.updatedAt = now
+    const index = set.cards.findIndex((card) => card.id === current.id)
+    if (index >= 0) set.cards[index] = next
+    baselineByCardId.set(current.id, baseline)
+  }
+  set.cards.push(...addedCards)
+  set.cards = set.cards.map((card) => resolveConditionalValues(set.columns, card))
+  set.importBaseline = [...baselineByCardId].map(([cardId, values]) => ({ cardId, values }))
+  set.importMatchFieldId = pending.matchFieldId
+  activeSetId = set.id
+  pendingMerges.delete(token)
+  await persistSets()
+  workbooks = await scanWorkbooks()
+  return snapshot()
 }
 
 async function scanAssets(): Promise<ProjectAsset[]> {
@@ -401,6 +592,8 @@ app.whenReady().then(() => {
     workbooks = await scanWorkbooks()
     return snapshot()
   })
+  ipcMain.handle('workbooks:merge-preview', async (_event, file: string, setId: string, matchFieldId?: string) => previewWorkbookMerge(file, setId, matchFieldId))
+  ipcMain.handle('workbooks:merge-apply', async (_event, token: string, resolutions: Record<string, 'excel' | 'set'>) => applyWorkbookMerge(token, resolutions))
   ipcMain.handle('assets:import', async () => {
     const result = await dialog.showOpenDialog(win!, { title: 'Aggiungi asset al progetto', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Immagini', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'avif'] }] })
     if (!result.canceled) {

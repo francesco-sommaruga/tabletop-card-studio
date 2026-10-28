@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Card, ColumnDefinition, GitStatus, ImportPlan, ProjectSnapshot, ProjectAsset, ProjectSummary, ProjectVariable, WorkbookInfo } from '../src/types'
+import type { Card, ColumnDefinition, GitStatus, ImportPlan, ProjectSnapshot, ProjectAsset, ProjectSummary, ProjectVariable, WorkbookInfo, WorkbookMergePreview } from '../src/types'
 
 contextBridge.exposeInMainWorld('cardCms', {
   openProject: () => ipcRenderer.invoke('project:open') as Promise<ProjectSnapshot | null>,
@@ -11,6 +11,8 @@ contextBridge.exposeInMainWorld('cardCms', {
   saveVariables: (variables: ProjectVariable[]) => ipcRenderer.invoke('variables:save', variables) as Promise<ProjectSnapshot>,
   selectSet: (id: string) => ipcRenderer.invoke('sets:select', id) as Promise<ProjectSnapshot>,
   importWorkbooks: (plans: ImportPlan[]) => ipcRenderer.invoke('workbooks:import', plans) as Promise<ProjectSnapshot>,
+  previewWorkbookMerge: (file: string, setId: string, matchFieldId?: string) => ipcRenderer.invoke('workbooks:merge-preview', file, setId, matchFieldId) as Promise<WorkbookMergePreview>,
+  applyWorkbookMerge: (token: string, resolutions: Record<string, 'excel' | 'set'>) => ipcRenderer.invoke('workbooks:merge-apply', token, resolutions) as Promise<ProjectSnapshot>,
   createSet: (name: string) => ipcRenderer.invoke('sets:create', name) as Promise<ProjectSnapshot>,
   scanWorkbooks: () => ipcRenderer.invoke('workbooks:scan') as Promise<WorkbookInfo[]>,
   importAssets: () => ipcRenderer.invoke('assets:import') as Promise<ProjectAsset[]>,

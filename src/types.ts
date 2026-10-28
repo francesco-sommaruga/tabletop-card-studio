@@ -10,6 +10,11 @@ export interface Card {
   updatedAt: string
 }
 
+export interface ImportBaselineRow {
+  cardId: string
+  values: Record<string, string>
+}
+
 export type RuleOperator = 'is_set' | 'is_empty' | 'equals' | 'not_equals' | 'contains'
 
 export interface ConditionalValueRule {
@@ -36,6 +41,8 @@ export interface ProjectSet {
   sourceFile?: string
   cards: Card[]
   columns: ColumnDefinition[]
+  importBaseline?: ImportBaselineRow[]
+  importMatchFieldId?: string
 }
 
 export interface WorkbookInfo {
@@ -74,6 +81,38 @@ export interface ImportPlan {
   file: string
   name: string
   fields: Array<{ header: string; type: ColumnDefinition['type']; options?: string[] }>
+}
+
+export interface MergeFieldConflict {
+  conflictId: string
+  cardId: string
+  cardTitle: string
+  fieldId: string
+  header: string
+  currentValue: string
+  incomingValue: string
+}
+
+export interface MergeFieldChange extends Omit<MergeFieldConflict, 'conflictId'> {
+  source: 'excel' | 'set'
+}
+
+export interface WorkbookMergePreview {
+  token: string
+  setId: string
+  setName: string
+  file: string
+  matchFieldId: string
+  matchFields: Array<{ id: string; label: string }>
+  matchedRows: number
+  unchangedRows: number
+  newTitles: string[]
+  missingTitles: string[]
+  automaticChanges: MergeFieldChange[]
+  preservedLocalChanges: MergeFieldChange[]
+  conflicts: MergeFieldConflict[]
+  duplicateKeys: string[]
+  legacyBaseline: boolean
 }
 
 export interface GitFileStatus {
@@ -121,6 +160,8 @@ export interface CardCmsApi {
   saveVariables: (variables: ProjectVariable[]) => Promise<ProjectSnapshot>
   selectSet: (id: string) => Promise<ProjectSnapshot>
   importWorkbooks: (plans: ImportPlan[]) => Promise<ProjectSnapshot>
+  previewWorkbookMerge: (file: string, setId: string, matchFieldId?: string) => Promise<WorkbookMergePreview>
+  applyWorkbookMerge: (token: string, resolutions: Record<string, 'excel' | 'set'>) => Promise<ProjectSnapshot>
   createSet: (name: string) => Promise<ProjectSnapshot>
   scanWorkbooks: () => Promise<WorkbookInfo[]>
   importAssets: () => Promise<ProjectAsset[]>

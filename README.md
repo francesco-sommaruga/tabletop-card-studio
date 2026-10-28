@@ -57,11 +57,12 @@ I pacchetti vengono generati in `dist/`.
 
 - Apri più progetti Tabletop Creator e scegli quale usare all’avvio.
 - Importa più file Excel: ogni file diventa un set indipendente. Durante l’importazione scegli i campi da mantenere.
+- Reimporta un foglio già collegato a un set: abbina le carte tramite una colonna, applica gli aggiornamenti Excel non in conflitto e scegli per campo nei conflitti; le carte assenti dal foglio restano nel set.
 - Crea campi di testo, testo lungo, numero, select, colore, immagine e variabile; riordina le colonne e salva le modifiche prima di applicarle.
 - Nascondi campi nell’editor senza escluderli dall’Excel e configura regole che compilano valori automaticamente in base ad altri campi (ad esempio colore predefinito quando un’icona è assegnata).
 - Assegna tag e stato alle carte, cerca e filtra per campi e ordina l’archivio.
 - Consulta statistiche per tag e proprietà, anche incrociando due campi e contando carte uniche o copie.
-- Crea e modifica le variabili di `data/variables.json`, assegnagli tag o il tipo Card Studio **Colore salvato**. I campi variabile sono di sola lettura e possono essere calcolati con regole condizionali.
+- Crea e modifica le variabili di `data/variables.json`, assegnagli tag o il tipo Card Studio **Colore salvato**. I campi variabile sono modificabili con un selettore; diventano di sola lettura quando hanno regole condizionali.
 - Gestisci gli asset del progetto e usa le variabili di Tabletop Creator nei campi testuali.
 - Esporta ogni set in un foglio `.xlsx` separato.
 - Collega un repository GitHub e gestisci commit, pull e push con le credenziali Git del computer.
