@@ -61,7 +61,7 @@ I pacchetti vengono generati in `dist/`.
 - Nascondi campi nell’editor senza escluderli dall’Excel e configura regole che compilano valori automaticamente in base ad altri campi (ad esempio colore predefinito quando un’icona è assegnata).
 - Assegna tag e stato alle carte, cerca e filtra per campi e ordina l’archivio.
 - Consulta statistiche per tag e proprietà, anche incrociando due campi e contando carte uniche o copie.
-- Crea e modifica le variabili di `data/variables.json`, assegna loro tag e limita i campi variabile ai tag scelti.
+- Crea e modifica le variabili di `data/variables.json`, assegnagli tag o il tipo Card Studio **Colore salvato**. I campi variabile sono di sola lettura e possono essere calcolati con regole condizionali.
 - Gestisci gli asset del progetto e usa le variabili di Tabletop Creator nei campi testuali.
 - Esporta ogni set in un foglio `.xlsx` separato.
 - Collega un repository GitHub e gestisci commit, pull e push con le credenziali Git del computer.
@@ -70,7 +70,7 @@ Per creare un valore automatico, apri **Campi e colonne**, espandi **Regole auto
 
 L’app salva i propri dati in `.tabletop-card-studio/` nella cartella del progetto aperto. Le immagini importate vengono copiate in `assets/card-studio/`. I fogli Excel originali non vengono modificati; l’esportazione crea un file `*-cms-export.xlsx`.
 
-I tag usati per filtrare le variabili sono metadati del Card Studio salvati in `.tabletop-card-studio/variable-tags.json`; le definizioni delle variabili vengono salvate nel formato di Tabletop Creator in `data/variables.json`.
+I tag e i tipi Card Studio delle variabili sono metadati separati salvati in `.tabletop-card-studio/variable-tags.json` e `variable-types.json`; le definizioni delle variabili continuano a essere salvate nel formato di Tabletop Creator in `data/variables.json`. I campi colore possono selezionare i colori salvati dalla palette del progetto.
 
 ## Nuove release
 

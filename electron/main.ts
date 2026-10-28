@@ -167,7 +167,12 @@ async function loadVariables(): Promise<ProjectVariable[]> {
       const metadata = JSON.parse(await fs.readFile(path.join(activeProject, dataDirName, 'variable-tags.json'), 'utf8'))
       if (metadata && typeof metadata === 'object' && metadata.variables && typeof metadata.variables === 'object') tagMap = metadata.variables
     } catch { /* no CMS tag metadata yet */ }
-    return source.map((variable) => ({ ...variable, studioTags: tagMap[variable.code.toLocaleLowerCase()] ?? variable.studioTags ?? [] }))
+    let typeMap: Record<string, 'text' | 'color'> = {}
+    try {
+      const metadata = JSON.parse(await fs.readFile(path.join(activeProject, dataDirName, 'variable-types.json'), 'utf8'))
+      if (metadata && typeof metadata === 'object' && metadata.variables && typeof metadata.variables === 'object') typeMap = metadata.variables
+    } catch { /* no CMS variable type metadata yet */ }
+    return source.map((variable) => ({ ...variable, studioTags: tagMap[variable.code.toLocaleLowerCase()] ?? variable.studioTags ?? [], studioType: typeMap[variable.code.toLocaleLowerCase()] ?? variable.studioType ?? 'text' }))
   } catch { return [] }
 }
 
@@ -358,7 +363,7 @@ app.whenReady().then(() => {
       const existing = JSON.parse(await fs.readFile(filePath, 'utf8'))
       if (existing && typeof existing === 'object' && !Array.isArray(existing)) document = existing
     } catch { /* create the variables file when it does not exist yet */ }
-    document.variables = nextVariables.map(({ studioTags: _studioTags, ...variable }) => variable)
+    document.variables = nextVariables.map(({ studioTags: _studioTags, studioType: _studioType, ...variable }) => variable)
     await fs.writeFile(filePath, JSON.stringify(document, null, 2))
     const tagMap = Object.fromEntries(nextVariables
       .filter((variable) => variable.studioTags?.length)
@@ -366,7 +371,12 @@ app.whenReady().then(() => {
     const metadataPath = path.join(activeProject, dataDirName, 'variable-tags.json')
     await fs.mkdir(path.dirname(metadataPath), { recursive: true })
     await fs.writeFile(metadataPath, JSON.stringify({ variables: tagMap }, null, 2))
-    variables = nextVariables
+    const typeMap = Object.fromEntries(nextVariables
+      .filter((variable) => variable.studioType === 'color')
+      .map((variable) => [variable.code.toLocaleLowerCase(), variable.studioType]))
+    const typeMetadataPath = path.join(activeProject, dataDirName, 'variable-types.json')
+    await fs.writeFile(typeMetadataPath, JSON.stringify({ variables: typeMap }, null, 2))
+    variables = nextVariables.map((variable) => ({ ...variable, studioType: variable.studioType ?? 'text' }))
     return snapshot()
   })
   ipcMain.handle('sets:select', async (_event, id: string) => { if (sets.some((set) => set.id === id)) activeSetId = id; return snapshot() })

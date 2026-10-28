@@ -57,6 +57,7 @@ export interface ProjectVariable {
   force_tint?: string
   color?: string
   studioTags?: string[]
+  studioType?: 'text' | 'color'
   [key: string]: unknown
 }
 
