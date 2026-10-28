@@ -1,0 +1,44 @@
+{
+  "name": "tabletop-card-cms",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Desktop CMS for tabletop card projects with configurable Excel export.",
+  "author": "Tabletop Card Studio",
+  "desktopName": "Tabletop Card Studio",
+  "main": "dist-electron/electron/main.js",
+  "scripts": {
+    "dev": "concurrently -k \"vite --host 127.0.0.1\" \"wait-on http://127.0.0.1:5173 && cross-env VITE_DEV_SERVER_URL=http://127.0.0.1:5173 electron .\"",
+    "build": "tsc -b && tsc -p tsconfig.electron.json && vite build && electron-builder",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "exceljs": "^4.4.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "concurrently": "^9.1.0",
+    "cross-env": "^7.0.3",
+    "electron": "^45.1.0",
+    "electron-builder": "^26.18.0",
+    "typescript": "~5.6.2",
+    "@types/node": "^22.10.1",
+    "vite": "^6.0.1",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "studio.tabletop.cardcms",
+    "productName": "Tabletop Card Studio",
+    "files": ["renderer-dist/**/*", "dist-electron/**/*", "public/**/*", "package.json"],
+    "linux": { "target": ["AppImage"], "category": "Office", "icon": "public/tabletop-card-studio.png" },
+    "win": { "target": ["nsis"] },
+    "mac": { "target": ["dmg"] }
+  },
+  "overrides": {
+    "uuid": "^11.1.1"
+  }
+}
