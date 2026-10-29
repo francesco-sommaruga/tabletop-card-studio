@@ -19,6 +19,7 @@ let variables: ProjectVariable[] = []
 let blueprints: TabletopBlueprint[] = []
 let nativeSets: NativeSetInfo[] = []
 let diagnosticQueue: Promise<void> = Promise.resolve()
+const notifiedNativeSyncSkips = new Set<string>()
 let iconCatalogCache: { projectPath: string; roots: string; icons: ProjectIconReference[] } | null = null
 const pendingMerges = new Map<string, { setId: string; matchFieldId: string; incoming: Card[]; selectedFieldIds: string[]; baselineFieldIds: string[]; restoreColumns: ColumnDefinition[] }>()
 const dataDirName = '.tabletop-card-studio'
@@ -102,7 +103,7 @@ async function logLinkedNativeHashDrifts() {
   }
   for (const [file, group] of groups) {
     try {
-      const currentHash = sha256(await fs.readFile(path.join(activeProject, 'data', 'sets', file)))
+      const currentHash = nativeDocumentHash(await fs.readFile(path.join(activeProject, 'data', 'sets', file)))
       const expectedHashes = [...new Set(group.map((set) => set.nativeSetHash).filter((hash): hash is string => Boolean(hash)))]
       if (expectedHashes.some((hash) => hash !== currentHash)) await writeDiagnostic('error', 'native-set.hash-mismatch.on-open', {
         file,
@@ -118,6 +119,33 @@ async function logLinkedNativeHashDrifts() {
       await writeDiagnostic('error', 'native-set.file-check-failed', { file, error: error instanceof Error ? { message: error.message, stack: error.stack } : String(error) })
     }
   }
+}
+
+async function upgradeNativeSetHashes() {
+  const groups = new Map<string, ProjectSet[]>()
+  for (const set of sets) if (set.nativeSetFile) {
+    const file = path.basename(set.nativeSetFile)
+    groups.set(file, [...(groups.get(file) ?? []), set])
+  }
+  let changed = false
+  for (const [file, group] of groups) {
+    let raw: Buffer
+    try { raw = await fs.readFile(path.join(activeProject, 'data', 'sets', file)) } catch { continue }
+    const currentCanonical = nativeDocumentHash(raw)
+    const currentRaw = sha256(raw)
+    for (const set of group) {
+      if (!set.nativeSetHash || set.nativeSetHash === currentCanonical) continue
+      let backupMatches = false
+      const backupPath = path.join(activeProject, dataDirName, 'native-backups', `${file}.${set.nativeSetHash.slice(0, 16)}.json`)
+      try { backupMatches = nativeDocumentHash(await fs.readFile(backupPath)) === currentCanonical } catch { /* no prior backup */ }
+      if (set.nativeSetHash === currentRaw || backupMatches) {
+        set.nativeSetHash = currentCanonical
+        changed = true
+        await writeDiagnostic('info', 'native-set.hash-format-upgraded', { file, setName: set.name, currentHash: currentCanonical, matchedBackup: backupMatches })
+      }
+    }
+  }
+  if (changed) await persistSets(false)
 }
 
 function fieldIdFor(header: string) {
@@ -150,6 +178,65 @@ function snapshot(): ProjectSnapshot {
   }
 }
 
+type SetStoreIndex = { version: 1; sets: Array<{ id: string; file: string }> }
+
+function setStoreFile(id: string) { return `set-${sha256(id).slice(0, 20)}.json` }
+
+async function writeFileAtomically(filePath: string, contents: string) {
+  await fs.mkdir(path.dirname(filePath), { recursive: true })
+  const tempPath = `${filePath}.card-studio-${crypto.randomUUID()}.tmp`
+  await fs.writeFile(tempPath, contents, 'utf8')
+  await fs.rename(tempPath, filePath)
+}
+
+async function readSplitSetStore(storeDir: string): Promise<ProjectSet[] | null> {
+  const indexPath = path.join(storeDir, 'sets', 'index.json')
+  if (!existsSync(indexPath)) return null
+  const index = JSON.parse(await fs.readFile(indexPath, 'utf8')) as SetStoreIndex
+  if (index.version !== 1 || !Array.isArray(index.sets)) throw new Error('Indice dei set Card Studio non valido.')
+  const loaded = await Promise.all(index.sets.map(async ({ id, file }) => {
+    if (path.basename(file) !== file || !file.endsWith('.json')) throw new Error(`File set non valido nell'indice: ${file}`)
+    const set = JSON.parse(await fs.readFile(path.join(storeDir, 'sets', file), 'utf8')) as ProjectSet
+    if (set.id !== id) throw new Error(`L'identificativo del set non corrisponde: ${file}`)
+    return set
+  }))
+  return loaded
+}
+
+async function writeSplitSetStore(storeDir: string, projectSets: ProjectSet[]) {
+  const setsDir = path.join(storeDir, 'sets')
+  await fs.mkdir(setsDir, { recursive: true })
+  const previousIndexPath = path.join(setsDir, 'index.json')
+  let previousIndex: SetStoreIndex | null = null
+  try { previousIndex = JSON.parse(await fs.readFile(previousIndexPath, 'utf8')) as SetStoreIndex } catch { /* first write or legacy migration */ }
+
+  const entries = projectSets.map((set) => ({ id: set.id, file: setStoreFile(set.id) }))
+  for (const set of projectSets) {
+    const filePath = path.join(setsDir, setStoreFile(set.id))
+    const content = JSON.stringify(set, null, 2)
+    let current = ''
+    try { current = await fs.readFile(filePath, 'utf8') } catch { /* new set */ }
+    if (current !== content) await writeFileAtomically(filePath, content)
+  }
+
+  const index: SetStoreIndex = { version: 1, sets: entries }
+  await writeFileAtomically(previousIndexPath, JSON.stringify(index, null, 2))
+
+  const retained = new Set(entries.map((entry) => entry.file))
+  for (const entry of previousIndex?.sets ?? []) {
+    if (!retained.has(entry.file) && path.basename(entry.file) === entry.file) await fs.rm(path.join(setsDir, entry.file), { force: true })
+  }
+
+  // Keep the old monolithic file as a dated recovery copy after the split store is durable.
+  const legacyPath = path.join(storeDir, 'sets.json')
+  if (existsSync(legacyPath)) {
+    const backupDir = path.join(storeDir, 'migration-backups')
+    await fs.mkdir(backupDir, { recursive: true })
+    const backupPath = path.join(backupDir, `sets-legacy-${new Date().toISOString().replace(/[:.]/g, '-')}.json`)
+    await fs.rename(legacyPath, backupPath)
+  }
+}
+
 async function persistSets(syncNative = true) {
   if (!activeProject) return
   const dir = path.join(activeProject, dataDirName)
@@ -162,10 +249,11 @@ async function persistSets(syncNative = true) {
     }
     for (const [file, group] of nativeGroups) {
       const filePath = path.join(activeProject, 'data', 'sets', file)
-      const currentHash = sha256(await fs.readFile(filePath))
       const expected = [...new Set(group.map((set) => set.nativeSetHash).filter((hash): hash is string => Boolean(hash)))]
-      if (expected.some((hash) => hash !== currentHash)) {
-        await writeDiagnostic('error', 'native-set.hash-mismatch', {
+      try {
+        const currentHash = nativeDocumentHash(await fs.readFile(filePath))
+        if (expected.some((hash) => hash !== currentHash)) {
+          await writeDiagnostic('info', 'native-set.sync-skipped-hash-mismatch', {
           file,
           setNames: group.map((set) => set.name),
           nameMismatches: group.flatMap((set) => {
@@ -175,14 +263,20 @@ async function persistSets(syncNative = true) {
           currentHash,
           expectedHashes: expected,
         })
-        throw new Error(`Il set nativo ${file} è cambiato fuori da Card Studio. Scollega e ricollega il set per importare le modifiche prima di continuare.`)
+          const notificationKey = `${activeProject}:${file}`
+          if (!notifiedNativeSyncSkips.has(notificationKey)) {
+            notifiedNativeSyncSkips.add(notificationKey)
+            win?.webContents.send('app:notice', `Salvato in Card Studio, ma “${group.map((set) => set.name).join(', ')}” non è stato sincronizzato in Tabletop Creator: il file nativo è cambiato. Consulta i log o ricollega il set.`)
+          }
+          continue
+        }
+        await writeLinkedNativeSets(group)
+      } catch (error) {
+        await writeDiagnostic('error', 'native-set.sync-skipped-error', { file, error: error instanceof Error ? { message: error.message, stack: error.stack } : String(error) })
       }
     }
-    for (const group of nativeGroups.values()) await writeLinkedNativeSets(group)
   }
-  const tempPath = path.join(dir, `sets.json.card-studio-${crypto.randomUUID()}.tmp`)
-  await fs.writeFile(tempPath, JSON.stringify(sets, null, 2))
-  await fs.rename(tempPath, path.join(dir, 'sets.json'))
+  await writeSplitSetStore(dir, sets)
 }
 
 function simpleCellText(value: ExcelJS.CellValue | undefined): string {
@@ -636,6 +730,20 @@ async function loadVariables(): Promise<ProjectVariable[]> {
 
 function sha256(data: string | Buffer) { return createHash('sha256').update(data).digest('hex') }
 
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    const object = value as Record<string, unknown>
+    return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${stableJson(object[key])}`).join(',')}}`
+  }
+  return JSON.stringify(value)
+}
+
+function nativeDocumentHash(data: string | Buffer) {
+  const parsed = JSON.parse(Buffer.isBuffer(data) ? data.toString('utf8') : data)
+  return sha256(stableJson(parsed))
+}
+
 async function scanNativeSets(): Promise<NativeSetInfo[]> {
   const directory = path.join(activeProject, 'data', 'sets')
   let files: string[]
@@ -812,7 +920,7 @@ async function writeLinkedNativeSets(linkedSets: ProjectSet[]) {
   const file = path.basename(linkedSets[0].nativeSetFile ?? '')
   const filePath = path.join(activeProject, 'data', 'sets', file)
   const original = await fs.readFile(filePath)
-  const actualHash = sha256(original)
+  const actualHash = nativeDocumentHash(original)
   if (linkedSets.some((set) => set.nativeSetHash && actualHash !== set.nativeSetHash)) throw new Error(`Il set nativo ${file} è cambiato fuori da Card Studio. Ricollega o ricarica il set prima di salvare.`)
   const backupDirectory = path.join(activeProject, dataDirName, 'native-backups')
   await fs.mkdir(backupDirectory, { recursive: true })
@@ -830,34 +938,44 @@ async function writeLinkedNativeSets(linkedSets: ProjectSet[]) {
   const temporary = `${filePath}.card-studio-${crypto.randomUUID()}.tmp`
   await fs.writeFile(temporary, serialized)
   await fs.rename(temporary, filePath)
-  const nextHash = sha256(serialized)
+  const nextHash = nativeDocumentHash(serialized)
   for (const set of linkedSets) set.nativeSetHash = nextHash
 }
 
 async function writeLinkedNativeSetName(target: ProjectSet) {
   if (!target.nativeSetFile || target.nativeSetIndex === undefined) return
   const file = path.basename(target.nativeSetFile)
-  const filePath = path.join(activeProject, 'data', 'sets', file)
-  const original = await fs.readFile(filePath)
-  const actualHash = sha256(original)
-  const linked = sets.filter((set) => set.nativeSetFile && path.basename(set.nativeSetFile) === file)
-  if (linked.some((set) => set.nativeSetHash && set.nativeSetHash !== actualHash)) throw new Error(`Il set nativo ${file} è cambiato fuori da Card Studio. Risolvi prima il conflitto di sincronizzazione.`)
-  const document = JSON.parse(original.toString('utf8'))
-  const nativeSet = document.sets?.[target.nativeSetIndex]
-  if (!nativeSet || !Array.isArray(nativeSet.items)) throw new Error(`Il set nativo ${file} non ha più la struttura prevista.`)
-  if (nativeSet.name === target.name) return
-  nativeSet.name = target.name
-  const backupDirectory = path.join(activeProject, dataDirName, 'native-backups')
-  await fs.mkdir(backupDirectory, { recursive: true })
-  const backupPath = path.join(backupDirectory, `${file}.${actualHash.slice(0, 16)}.json`)
-  if (!existsSync(backupPath)) await fs.copyFile(filePath, backupPath)
-  const serialized = JSON.stringify(document, null, 2)
-  const temporary = `${filePath}.card-studio-${crypto.randomUUID()}.tmp`
-  await fs.writeFile(temporary, serialized)
-  await fs.rename(temporary, filePath)
-  const nextHash = sha256(serialized)
-  for (const set of linked) set.nativeSetHash = nextHash
-  nativeSets = await scanNativeSets()
+  try {
+    const filePath = path.join(activeProject, 'data', 'sets', file)
+    const original = await fs.readFile(filePath)
+    const actualHash = nativeDocumentHash(original)
+    const linked = sets.filter((set) => set.nativeSetFile && path.basename(set.nativeSetFile) === file)
+    if (linked.some((set) => set.nativeSetHash && set.nativeSetHash !== actualHash)) {
+      await writeDiagnostic('error', 'native-set.rename-skipped-hash-mismatch', { file, setName: target.name })
+      return
+    }
+    const document = JSON.parse(original.toString('utf8'))
+    const nativeSet = document.sets?.[target.nativeSetIndex]
+    if (!nativeSet || !Array.isArray(nativeSet.items)) {
+      await writeDiagnostic('error', 'native-set.rename-skipped-missing-set', { file, setName: target.name, index: target.nativeSetIndex })
+      return
+    }
+    if (nativeSet.name === target.name) return
+    nativeSet.name = target.name
+    const backupDirectory = path.join(activeProject, dataDirName, 'native-backups')
+    await fs.mkdir(backupDirectory, { recursive: true })
+    const backupPath = path.join(backupDirectory, `${file}.${actualHash.slice(0, 16)}.json`)
+    if (!existsSync(backupPath)) await fs.copyFile(filePath, backupPath)
+    const serialized = JSON.stringify(document, null, 2)
+    const temporary = `${filePath}.card-studio-${crypto.randomUUID()}.tmp`
+    await fs.writeFile(temporary, serialized)
+    await fs.rename(temporary, filePath)
+    const nextHash = nativeDocumentHash(serialized)
+    for (const set of linked) set.nativeSetHash = nextHash
+    nativeSets = await scanNativeSets()
+  } catch (error) {
+    await writeDiagnostic('error', 'native-set.rename-sync-failed', { file, setName: target.name, error: error instanceof Error ? { message: error.message, stack: error.stack } : String(error) })
+  }
 }
 
 async function loadBlueprints(): Promise<TabletopBlueprint[]> {
@@ -885,11 +1003,17 @@ async function persistProjectList() {
 
 async function openProject(folder: string): Promise<ProjectSnapshot> {
   activeProject = folder
+  for (const key of notifiedNativeSyncSkips) if (key.startsWith(`${folder}:`)) notifiedNativeSyncSkips.delete(key)
   projectName = path.basename(folder)
   const storeDir = path.join(folder, dataDirName)
   const setsFile = path.join(storeDir, 'sets.json')
-  if (existsSync(setsFile)) {
+  const splitSets = await readSplitSetStore(storeDir)
+  if (splitSets) {
+    sets = splitSets
+  } else if (existsSync(setsFile)) {
     sets = JSON.parse(await fs.readFile(setsFile, 'utf8'))
+    await writeSplitSetStore(storeDir, sets)
+    await writeDiagnostic('info', 'sets.store-migrated', { setCount: sets.length })
   } else {
     const legacyCards = path.join(storeDir, 'cards.json')
     const legacyColumns = path.join(storeDir, 'columns.json')
@@ -909,6 +1033,7 @@ async function openProject(folder: string): Promise<ProjectSnapshot> {
   blueprints = await loadBlueprints()
   nativeSets = await scanNativeSets()
   await fs.mkdir(storeDir, { recursive: true })
+  await upgradeNativeSetHashes()
   if (normalizeBlueprintFieldSets()) await persistSets(false)
   await logLinkedNativeHashDrifts()
   await persistProjectList()
@@ -954,7 +1079,7 @@ async function connectNativeSet(setId: string, file: string, index: number): Pro
   target.blueprintName = nativeBlueprintName
   target.nativeSetFile = safeFile
   target.nativeSetIndex = index
-  target.nativeSetHash = sha256(raw)
+  target.nativeSetHash = nativeDocumentHash(raw)
   activeSetId = target.id
   if (nativeBlueprintName) synchronizeBlueprintFields(nativeBlueprintName, columns)
   nativeSets = await scanNativeSets()
@@ -993,7 +1118,7 @@ async function createNativeSet(setId: string, name: string, blueprintName: strin
   for (let index = 0; index < target.cards.length; index += 1) target.cards[index].nativeItem = JSON.parse(JSON.stringify(nativeSet.items[index]))
   target.nativeSetFile = file
   target.nativeSetIndex = 0
-  target.nativeSetHash = sha256(serialized)
+  target.nativeSetHash = nativeDocumentHash(serialized)
   nativeSets = await scanNativeSets()
   await persistSets(false)
   return snapshot()
@@ -1026,14 +1151,14 @@ async function resolveNativeSetNameConflict(setId: string, resolution: 'card-stu
   if (resolution === 'card-studio') {
     const backupDirectory = path.join(activeProject, dataDirName, 'native-backups')
     await fs.mkdir(backupDirectory, { recursive: true })
-    const hash = sha256(raw)
+    const hash = nativeDocumentHash(raw)
     const backupPath = path.join(backupDirectory, `${file}.${hash.slice(0, 16)}.json`)
     if (!existsSync(backupPath)) await fs.copyFile(filePath, backupPath)
     const temporary = `${filePath}.card-studio-${crypto.randomUUID()}.tmp`
     await fs.writeFile(temporary, serialized)
     await fs.rename(temporary, filePath)
   }
-  const nextHash = sha256(resolution === 'card-studio' ? serialized : raw)
+  const nextHash = nativeDocumentHash(resolution === 'card-studio' ? serialized : raw)
   for (const set of sets) if (set.nativeSetFile && path.basename(set.nativeSetFile) === file) set.nativeSetHash = nextHash
   await persistSets(false)
   nativeSets = await scanNativeSets()
@@ -1089,7 +1214,9 @@ async function duplicateProjectSet(setId: string): Promise<ProjectSnapshot> {
     const sourceFile = path.basename(source.nativeSetFile)
     const sourcePath = path.join(activeProject, 'data', 'sets', sourceFile)
     const original = await fs.readFile(sourcePath)
-    if (source.nativeSetHash && sha256(original) !== source.nativeSetHash) throw new Error(`Il set nativo ${sourceFile} è cambiato fuori da Card Studio. Ricaricalo prima di duplicarlo.`)
+    if (source.nativeSetHash && nativeDocumentHash(original) !== source.nativeSetHash) {
+      await writeDiagnostic('info', 'native-set.duplicate-from-local-copy', { file: sourceFile, setName: source.name })
+    }
     const document = JSON.parse(original.toString('utf8'))
     const nativeSet = document.sets?.[source.nativeSetIndex]
     if (!nativeSet) throw new Error('Non trovo il set nativo da duplicare.')
@@ -1112,7 +1239,7 @@ async function duplicateProjectSet(setId: string): Promise<ProjectSnapshot> {
     await fs.writeFile(path.join(directory, file), serialized, { flag: 'wx' })
     duplicate.nativeSetFile = file
     duplicate.nativeSetIndex = 0
-    duplicate.nativeSetHash = sha256(serialized)
+    duplicate.nativeSetHash = nativeDocumentHash(serialized)
     nativeSets = await scanNativeSets()
   }
   sets.push(duplicate)
@@ -1131,8 +1258,12 @@ async function moveCardBetweenSets(cardId: string, targetSetId: string, draft?: 
   for (const set of [source, target]) {
     if (!set.nativeSetFile || !set.nativeSetHash) continue
     const file = path.basename(set.nativeSetFile)
-    const current = await fs.readFile(path.join(activeProject, 'data', 'sets', file))
-    if (sha256(current) !== set.nativeSetHash) throw new Error(`Il set nativo ${file} è cambiato fuori da Card Studio. Ricaricalo prima di spostare carte.`)
+    try {
+      const current = await fs.readFile(path.join(activeProject, 'data', 'sets', file))
+      if (nativeDocumentHash(current) !== set.nativeSetHash) await writeDiagnostic('info', 'native-set.move-will-save-locally', { file, setName: set.name })
+    } catch (error) {
+      await writeDiagnostic('info', 'native-set.move-will-save-locally', { file, setName: set.name, error: error instanceof Error ? error.message : String(error) })
+    }
   }
   if (source.blueprintName && source.blueprintName === target.blueprintName) synchronizeBlueprintFields(source.blueprintName, mergeColumnDefinitions(source.columns, target.columns))
   const card = draft ? resolveConditionalValues(source.columns, { ...draft, id: cardId, updatedAt: new Date().toISOString() }) : source.cards[index]
@@ -1164,7 +1295,8 @@ async function listProjects(): Promise<ProjectSummary[]> {
     if (!existsSync(entry.path)) continue
     const dataDir = path.join(entry.path, dataDirName)
     let projectSets: ProjectSet[] = []
-    try { projectSets = JSON.parse(await fs.readFile(path.join(dataDir, 'sets.json'), 'utf8')) } catch {
+    try { projectSets = await readSplitSetStore(dataDir) ?? [] } catch { /* try legacy store */ }
+    if (!projectSets.length) try { projectSets = JSON.parse(await fs.readFile(path.join(dataDir, 'sets.json'), 'utf8')) } catch {
       try {
         const cards: Card[] = JSON.parse(await fs.readFile(path.join(dataDir, 'cards.json'), 'utf8'))
         projectSets = [{ id: 'legacy', name: 'Set principale', cards, columns: [] }]

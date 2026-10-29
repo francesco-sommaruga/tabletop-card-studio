@@ -2,6 +2,11 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { Card, ColumnDefinition, GitStatus, ImportPlan, ProjectSnapshot, ProjectAsset, ProjectIconReference, ProjectSummary, ProjectVariable, WorkbookInfo, WorkbookMergePreview } from '../src/types'
 
 contextBridge.exposeInMainWorld('cardCms', {
+  onNotice: (callback: (message: string) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, message: string) => callback(message)
+    ipcRenderer.on('app:notice', listener)
+    return () => ipcRenderer.removeListener('app:notice', listener)
+  },
   openDiagnosticLog: () => ipcRenderer.invoke('diagnostics:open') as Promise<string>,
   writeDiagnostic: (event: string, details?: Record<string, string | number | boolean | undefined>) => ipcRenderer.invoke('diagnostics:renderer', event, details) as Promise<void>,
   openProject: () => ipcRenderer.invoke('project:open') as Promise<ProjectSnapshot | null>,

@@ -119,6 +119,7 @@ function App() {
   const refreshProjects = () => window.cardCms.listProjects().then(setProjects)
   useEffect(() => { void refreshProjects() }, [])
   useEffect(() => { if (toast) { const timer = setTimeout(() => setToast(''), 2800); return () => clearTimeout(timer) } }, [toast])
+  useEffect(() => window.cardCms.onNotice((message) => setToast(message)), [])
   useEffect(() => {
     const onError = (event: ErrorEvent) => { void window.cardCms.writeDiagnostic('uncaught-error', { message: event.message, filename: event.filename, line: event.lineno, column: event.colno, stack: event.error instanceof Error ? event.error.stack : '' }) }
     const onRejection = (event: PromiseRejectionEvent) => { const reason = event.reason; void window.cardCms.writeDiagnostic('unhandled-rejection', { message: reason instanceof Error ? reason.message : String(reason), stack: reason instanceof Error ? reason.stack : '' }) }
