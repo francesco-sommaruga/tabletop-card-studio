@@ -445,7 +445,7 @@ function BlueprintPanelPreview({ panel, card, columns, assets, variables, projec
   const data = panel.data ?? {}
   const [x, y] = parseBlueprintVector(data.layout_position, [0, 0])
   const [width, height] = parseBlueprintVector(data.layout_size, [canvasWidth, canvasHeight])
-  const top = canvasHeight - y - height
+  const top = y
   const panelValue = cardPanelValue(card, columns, panel.name, 'value') ?? data.value ?? ''
   const color = cardPanelValue(card, columns, panel.name, 'color') ?? data.color ?? '#292929FF'
   const backgroundColor = cardPanelValue(card, columns, panel.name, 'background_color') ?? data.background_color ?? 'transparent'
@@ -460,7 +460,7 @@ function BlueprintPanelPreview({ panel, card, columns, assets, variables, projec
   const proceduralPath = `M ${x + topLeft} ${top} L ${x + width - topRight} ${top} Q ${x + width} ${top} ${x + width} ${top + topRight} L ${x + width} ${top + height - bottomRight} Q ${x + width} ${top + height} ${x + width - bottomRight} ${top + height} L ${x + bottomLeft} ${top + height} Q ${x} ${top + height} ${x} ${top + height - bottomLeft} L ${x} ${top + topLeft} Q ${x} ${top} ${x + topLeft} ${top} Z`
   const proceduralFill = backgroundColor !== 'transparent' ? backgroundColor : borderWidth > 0 ? 'transparent' : color
   const panelType = data.panel_type ?? 'text'
-  const rotationTransform = rotation ? `rotate(${-rotation}, ${x + width / 2}, ${top + height / 2})` : undefined
+  const rotationTransform = rotation ? `rotate(${rotation}, ${x + width / 2}, ${top + height / 2})` : undefined
   const style = { overflow: 'hidden' as const, boxSizing: 'border-box' as const }
   if (panelType === 'text') return <foreignObject x={x} y={top} width={width} height={height} transform={rotationTransform}><div className={`blueprint-text-panel align-${data.text_alignment_h ?? 'left'} valign-${data.text_alignment_v ?? 'center'}`} style={{ ...style, color, fontFamily, fontSize, fontWeight: data.text_bold?.toLowerCase() === 'true' ? 'bold' : 'normal', textAlign: data.text_alignment_h === 'center' ? 'center' : data.text_alignment_h === 'right' ? 'right' : 'left', WebkitLineClamp: data.text_autosize?.toLowerCase() === 'true' ? 8 : undefined }} dangerouslySetInnerHTML={{ __html: renderBlueprintText(panelValue, variables) }}/></foreignObject>
   if (panelType === 'procedural') return <g transform={rotationTransform}><path d={proceduralPath} fill={proceduralFill} stroke={borderWidth > 0 ? color : 'none'} strokeWidth={borderWidth} strokeLinejoin="round"/></g>
