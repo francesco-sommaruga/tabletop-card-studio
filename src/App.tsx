@@ -56,7 +56,7 @@ function VariableTextPreview({ value, variables, projectPath, className = 'varia
     if (!match) return <span key={index}>{segment}</span>
     const token = match[1]
     const variable = variables.find((item) => item.code.toLocaleLowerCase() === token.toLocaleLowerCase())
-    if (variable?.studioType === 'icon') return <IconPreview key={index} reference={variable.replacement} projectPath={projectPath} className="inline-variable-icon"/>
+    if (variable?.studioType === 'icon') return <IconPreview key={index} reference={variable.replacement} projectPath={projectPath} className="inline-variable-icon" tint="currentColor"/>
     if (variable) return <span key={index}>{variable.replacement}</span>
     if (token.includes('/') || /\.(png|svg|webp|jpe?g)$/i.test(token)) return <IconPreview key={index} reference={token} projectPath={projectPath} className="inline-variable-icon"/>
     return <span key={index}>{segment}</span>
