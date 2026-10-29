@@ -104,7 +104,16 @@ async function logLinkedNativeHashDrifts() {
     try {
       const currentHash = sha256(await fs.readFile(path.join(activeProject, 'data', 'sets', file)))
       const expectedHashes = [...new Set(group.map((set) => set.nativeSetHash).filter((hash): hash is string => Boolean(hash)))]
-      if (expectedHashes.some((hash) => hash !== currentHash)) await writeDiagnostic('error', 'native-set.hash-mismatch.on-open', { file, setNames: group.map((set) => set.name), currentHash, expectedHashes })
+      if (expectedHashes.some((hash) => hash !== currentHash)) await writeDiagnostic('error', 'native-set.hash-mismatch.on-open', {
+        file,
+        setNames: group.map((set) => set.name),
+        nameMismatches: group.flatMap((set) => {
+          const native = nativeSets.find((item) => item.file === file && item.index === set.nativeSetIndex)
+          return native && native.name !== set.name ? [{ cardStudioName: set.name, tabletopCreatorName: native.name, index: native.index }] : []
+        }),
+        currentHash,
+        expectedHashes,
+      })
     } catch (error) {
       await writeDiagnostic('error', 'native-set.file-check-failed', { file, error: error instanceof Error ? { message: error.message, stack: error.stack } : String(error) })
     }
@@ -156,7 +165,16 @@ async function persistSets(syncNative = true) {
       const currentHash = sha256(await fs.readFile(filePath))
       const expected = [...new Set(group.map((set) => set.nativeSetHash).filter((hash): hash is string => Boolean(hash)))]
       if (expected.some((hash) => hash !== currentHash)) {
-        await writeDiagnostic('error', 'native-set.hash-mismatch', { file, setNames: group.map((set) => set.name), currentHash, expectedHashes: expected })
+        await writeDiagnostic('error', 'native-set.hash-mismatch', {
+          file,
+          setNames: group.map((set) => set.name),
+          nameMismatches: group.flatMap((set) => {
+            const native = nativeSets.find((item) => item.file === file && item.index === set.nativeSetIndex)
+            return native && native.name !== set.name ? [{ cardStudioName: set.name, tabletopCreatorName: native.name, index: native.index }] : []
+          }),
+          currentHash,
+          expectedHashes: expected,
+        })
         throw new Error(`Il set nativo ${file} è cambiato fuori da Card Studio. Scollega e ricollega il set per importare le modifiche prima di continuare.`)
       }
     }
@@ -805,7 +823,6 @@ async function writeLinkedNativeSets(linkedSets: ProjectSet[]) {
     if (set.nativeSetIndex === undefined) continue
     const nativeSet = document.sets?.[set.nativeSetIndex]
     if (!nativeSet || !Array.isArray(nativeSet.items)) throw new Error(`Il set ${file} non ha più la struttura prevista.`)
-    nativeSet.name = set.name
     nativeSet.items = set.cards.map((card) => nativeItemFromCard(card, set.columns))
     for (let index = 0; index < set.cards.length; index += 1) set.cards[index].nativeItem = JSON.parse(JSON.stringify(nativeSet.items[index]))
   }
@@ -815,6 +832,32 @@ async function writeLinkedNativeSets(linkedSets: ProjectSet[]) {
   await fs.rename(temporary, filePath)
   const nextHash = sha256(serialized)
   for (const set of linkedSets) set.nativeSetHash = nextHash
+}
+
+async function writeLinkedNativeSetName(target: ProjectSet) {
+  if (!target.nativeSetFile || target.nativeSetIndex === undefined) return
+  const file = path.basename(target.nativeSetFile)
+  const filePath = path.join(activeProject, 'data', 'sets', file)
+  const original = await fs.readFile(filePath)
+  const actualHash = sha256(original)
+  const linked = sets.filter((set) => set.nativeSetFile && path.basename(set.nativeSetFile) === file)
+  if (linked.some((set) => set.nativeSetHash && set.nativeSetHash !== actualHash)) throw new Error(`Il set nativo ${file} è cambiato fuori da Card Studio. Risolvi prima il conflitto di sincronizzazione.`)
+  const document = JSON.parse(original.toString('utf8'))
+  const nativeSet = document.sets?.[target.nativeSetIndex]
+  if (!nativeSet || !Array.isArray(nativeSet.items)) throw new Error(`Il set nativo ${file} non ha più la struttura prevista.`)
+  if (nativeSet.name === target.name) return
+  nativeSet.name = target.name
+  const backupDirectory = path.join(activeProject, dataDirName, 'native-backups')
+  await fs.mkdir(backupDirectory, { recursive: true })
+  const backupPath = path.join(backupDirectory, `${file}.${actualHash.slice(0, 16)}.json`)
+  if (!existsSync(backupPath)) await fs.copyFile(filePath, backupPath)
+  const serialized = JSON.stringify(document, null, 2)
+  const temporary = `${filePath}.card-studio-${crypto.randomUUID()}.tmp`
+  await fs.writeFile(temporary, serialized)
+  await fs.rename(temporary, filePath)
+  const nextHash = sha256(serialized)
+  for (const set of linked) set.nativeSetHash = nextHash
+  nativeSets = await scanNativeSets()
 }
 
 async function loadBlueprints(): Promise<TabletopBlueprint[]> {
@@ -854,7 +897,7 @@ async function openProject(folder: string): Promise<ProjectSnapshot> {
       const cards: Card[] = JSON.parse(await fs.readFile(legacyCards, 'utf8'))
       const columns: ColumnDefinition[] = existsSync(legacyColumns) ? JSON.parse(await fs.readFile(legacyColumns, 'utf8')) : defaultColumns
       sets = [{ id: `set_${crypto.randomUUID()}`, name: 'Set principale', sourceFile: existsSync(path.join(folder, 'cards.xlsx')) ? 'cards.xlsx' : undefined, cards, columns }]
-      await persistSets()
+      await persistSets(false)
     } else {
       sets = []
     }
@@ -952,7 +995,7 @@ async function createNativeSet(setId: string, name: string, blueprintName: strin
   target.nativeSetIndex = 0
   target.nativeSetHash = sha256(serialized)
   nativeSets = await scanNativeSets()
-  await persistSets()
+  await persistSets(false)
   return snapshot()
 }
 
@@ -1052,10 +1095,11 @@ async function duplicateProjectSet(setId: string): Promise<ProjectSnapshot> {
     if (!nativeSet) throw new Error('Non trovo il set nativo da duplicare.')
     const nativeCopy = JSON.parse(JSON.stringify(nativeSet)) as Record<string, unknown>
     const nativeNames = new Set(nativeSets.map((item) => item.name.toLocaleLowerCase()))
-    const baseNativeName = `${String(nativeSet.name || source.name)}_copy`
+    const baseNativeName = copyName
     let nativeName = baseNativeName
     let nativeSuffix = 2
-    while (nativeNames.has(nativeName.toLocaleLowerCase())) nativeName = `${baseNativeName}_${nativeSuffix++}`
+    while (nativeNames.has(nativeName.toLocaleLowerCase())) nativeName = `${baseNativeName} ${nativeSuffix++}`
+    duplicate.name = nativeName
     nativeCopy.name = nativeName
     nativeCopy.hint_order_index = nativeSets.length
     const nativeItems = Array.isArray(nativeCopy.items) ? nativeCopy.items : []
@@ -1313,7 +1357,8 @@ app.whenReady().then(() => {
     if (!target) throw new Error('Il set selezionato non esiste più.')
     if (!trimmedName) throw new Error('Il nome del set non può essere vuoto.')
     target.name = trimmedName
-    await persistSets()
+    await writeLinkedNativeSetName(target)
+    await persistSets(false)
     nativeSets = await scanNativeSets()
     return snapshot()
   })
@@ -1322,14 +1367,14 @@ app.whenReady().then(() => {
     if (targetIndex < 0) throw new Error('Il set selezionato non esiste più.')
     sets.splice(targetIndex, 1)
     if (activeSetId === id) activeSetId = sets[0]?.id ?? null
-    await persistSets()
+    await persistSets(false)
     return snapshot()
   })
   registerLoggedHandler('sets:create', async (name: string) => {
     const set: ProjectSet = { id: `set_${crypto.randomUUID()}`, name: name.trim() || 'Nuovo set', cards: [], columns: structuredClone(defaultColumns) }
     sets.push(set)
     activeSetId = set.id
-    await persistSets()
+    await persistSets(false)
     return snapshot()
   })
   ipcMain.handle('workbooks:scan', async () => { workbooks = await scanWorkbooks(); return workbooks })
@@ -1342,7 +1387,7 @@ app.whenReady().then(() => {
       imported.push(importedSet)
     }
     activeSetId = imported[0]?.id ?? activeSetId
-    await persistSets()
+    await persistSets(false)
     workbooks = await scanWorkbooks()
     return snapshot()
   })
