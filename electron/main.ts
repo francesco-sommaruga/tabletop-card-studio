@@ -690,6 +690,7 @@ async function writeLinkedNativeSets(linkedSets: ProjectSet[]) {
     if (set.nativeSetIndex === undefined) continue
     const nativeSet = document.sets?.[set.nativeSetIndex]
     if (!nativeSet || !Array.isArray(nativeSet.items)) throw new Error(`Il set ${file} non ha più la struttura prevista.`)
+    nativeSet.name = set.name
     nativeSet.items = set.cards.map((card) => nativeItemFromCard(card, set.columns))
     for (let index = 0; index < set.cards.length; index += 1) set.cards[index].nativeItem = JSON.parse(JSON.stringify(nativeSet.items[index]))
   }
@@ -797,7 +798,7 @@ async function connectNativeSet(setId: string, file: string, index: number): Pro
   activeSetId = target.id
   if (nativeBlueprintName) synchronizeBlueprintFields(nativeBlueprintName, columns)
   nativeSets = await scanNativeSets()
-  await persistSets()
+  await persistSets(false)
   return snapshot()
 }
 
@@ -811,6 +812,7 @@ async function createNativeSet(setId: string, name: string, blueprintName: strin
   if (nativeSets.some((nativeSet) => nativeSet.name.toLocaleLowerCase() === trimmedName.toLocaleLowerCase())) throw new Error(`Esiste già un set Tabletop Creator chiamato “${trimmedName}”.`)
   const existingBlueprintColumns = sets.filter((set) => set.id !== target.id && set.blueprintName === blueprintName).map((set) => set.columns)
   target.blueprintName = blueprintName
+  target.name = trimmedName
   const sharedColumns = synchronizeBlueprintFields(blueprintName, mergeColumnDefinitions(...existingBlueprintColumns, target.columns))
   target.columns = sharedColumns
   const nativeSet = {
@@ -846,6 +848,35 @@ async function disconnectNativeSet(setId: string): Promise<ProjectSnapshot> {
   target.nativeSetHash = undefined
   target.cards = target.cards.map(({ nativeItem: _nativeItem, ...card }) => card)
   await persistSets(false)
+  return snapshot()
+}
+
+async function resolveNativeSetNameConflict(setId: string, resolution: 'card-studio' | 'tabletop'): Promise<ProjectSnapshot> {
+  const target = sets.find((set) => set.id === setId)
+  if (!target?.nativeSetFile || target.nativeSetIndex === undefined) throw new Error('Il set non è collegato a Tabletop Creator.')
+  const file = path.basename(target.nativeSetFile)
+  const filePath = path.join(activeProject, 'data', 'sets', file)
+  const raw = await fs.readFile(filePath)
+  const document = JSON.parse(raw.toString('utf8'))
+  const nativeSet = document.sets?.[target.nativeSetIndex]
+  if (!nativeSet || !Array.isArray(nativeSet.items)) throw new Error('Il set nativo non è più disponibile nel progetto.')
+  if (resolution === 'card-studio') nativeSet.name = target.name
+  else target.name = String(nativeSet.name || target.name)
+  const serialized = JSON.stringify(document, null, 2)
+  if (resolution === 'card-studio') {
+    const backupDirectory = path.join(activeProject, dataDirName, 'native-backups')
+    await fs.mkdir(backupDirectory, { recursive: true })
+    const hash = sha256(raw)
+    const backupPath = path.join(backupDirectory, `${file}.${hash.slice(0, 16)}.json`)
+    if (!existsSync(backupPath)) await fs.copyFile(filePath, backupPath)
+    const temporary = `${filePath}.card-studio-${crypto.randomUUID()}.tmp`
+    await fs.writeFile(temporary, serialized)
+    await fs.rename(temporary, filePath)
+  }
+  const nextHash = sha256(resolution === 'card-studio' ? serialized : raw)
+  for (const set of sets) if (set.nativeSetFile && path.basename(set.nativeSetFile) === file) set.nativeSetHash = nextHash
+  await persistSets(false)
+  nativeSets = await scanNativeSets()
   return snapshot()
 }
 
@@ -1149,6 +1180,7 @@ app.whenReady().then(() => {
   ipcMain.handle('sets:link-native', async (_event, setId: string, file: string, index: number) => connectNativeSet(setId, file, index))
   ipcMain.handle('sets:create-native', async (_event, setId: string, name: string, blueprintName: string) => createNativeSet(setId, name, blueprintName))
   ipcMain.handle('sets:unlink-native', async (_event, setId: string) => disconnectNativeSet(setId))
+  ipcMain.handle('sets:resolve-name-conflict', async (_event, setId: string, resolution: 'card-studio' | 'tabletop') => resolveNativeSetNameConflict(setId, resolution))
   ipcMain.handle('sets:duplicate', async (_event, setId: string) => duplicateProjectSet(setId))
   ipcMain.handle('cards:move', async (_event, cardId: string, targetSetId: string, draft?: Card) => moveCardBetweenSets(cardId, targetSetId, draft))
   ipcMain.handle('sets:rename', async (_event, id: string, name: string) => {
@@ -1158,6 +1190,7 @@ app.whenReady().then(() => {
     if (!trimmedName) throw new Error('Il nome del set non può essere vuoto.')
     target.name = trimmedName
     await persistSets()
+    nativeSets = await scanNativeSets()
     return snapshot()
   })
   ipcMain.handle('sets:delete', async (_event, id: string) => {

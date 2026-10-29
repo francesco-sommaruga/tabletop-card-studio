@@ -111,6 +111,11 @@ export interface TabletopBlueprint {
   back_layers?: TabletopBlueprintGroup[]
 }
 
+export interface BlueprintFieldOption {
+  header: string
+  type: NonNullable<ColumnDefinition['type']>
+}
+
 export interface ProjectSummary {
   path: string
   name: string
@@ -235,6 +240,7 @@ export interface CardCmsApi {
   exportExcel: (cardIds?: string[]) => Promise<{ path: string; count: number } | null>
   linkNativeSet: (setId: string, file: string, index: number) => Promise<ProjectSnapshot>
   createNativeSet: (setId: string, name: string, blueprintName: string) => Promise<ProjectSnapshot>
+  resolveNativeSetNameConflict: (setId: string, resolution: 'card-studio' | 'tabletop') => Promise<ProjectSnapshot>
   unlinkNativeSet: (setId: string) => Promise<ProjectSnapshot>
   saveBlueprintAssignments: (assignments: Record<string, string>) => Promise<ProjectSnapshot>
   duplicateSet: (setId: string) => Promise<ProjectSnapshot>

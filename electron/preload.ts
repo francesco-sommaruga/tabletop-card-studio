@@ -14,6 +14,7 @@ contextBridge.exposeInMainWorld('cardCms', {
   selectSet: (id: string) => ipcRenderer.invoke('sets:select', id) as Promise<ProjectSnapshot>,
   linkNativeSet: (setId: string, file: string, index: number) => ipcRenderer.invoke('sets:link-native', setId, file, index) as Promise<ProjectSnapshot>,
   createNativeSet: (setId: string, name: string, blueprintName: string) => ipcRenderer.invoke('sets:create-native', setId, name, blueprintName) as Promise<ProjectSnapshot>,
+  resolveNativeSetNameConflict: (setId: string, resolution: 'card-studio' | 'tabletop') => ipcRenderer.invoke('sets:resolve-name-conflict', setId, resolution) as Promise<ProjectSnapshot>,
   unlinkNativeSet: (setId: string) => ipcRenderer.invoke('sets:unlink-native', setId) as Promise<ProjectSnapshot>,
   saveBlueprintAssignments: (assignments: Record<string, string>) => ipcRenderer.invoke('blueprints:assignments-save', assignments) as Promise<ProjectSnapshot>,
   duplicateSet: (setId: string) => ipcRenderer.invoke('sets:duplicate', setId) as Promise<ProjectSnapshot>,
