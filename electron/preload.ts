@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('cardCms', {
   selectSet: (id: string) => ipcRenderer.invoke('sets:select', id) as Promise<ProjectSnapshot>,
   linkNativeSet: (setId: string, file: string, index: number) => ipcRenderer.invoke('sets:link-native', setId, file, index) as Promise<ProjectSnapshot>,
   createNativeSet: (setId: string, name: string, blueprintName: string) => ipcRenderer.invoke('sets:create-native', setId, name, blueprintName) as Promise<ProjectSnapshot>,
+  duplicateSet: (setId: string) => ipcRenderer.invoke('sets:duplicate', setId) as Promise<ProjectSnapshot>,
+  moveCard: (cardId: string, targetSetId: string) => ipcRenderer.invoke('cards:move', cardId, targetSetId) as Promise<ProjectSnapshot>,
   renameSet: (id: string, name: string) => ipcRenderer.invoke('sets:rename', id, name) as Promise<ProjectSnapshot>,
   deleteSet: (id: string) => ipcRenderer.invoke('sets:delete', id) as Promise<ProjectSnapshot>,
   importWorkbooks: (plans: ImportPlan[]) => ipcRenderer.invoke('workbooks:import', plans) as Promise<ProjectSnapshot>,

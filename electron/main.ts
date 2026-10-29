@@ -62,7 +62,12 @@ async function persistSets(syncNative = true) {
   await fs.mkdir(dir, { recursive: true })
   await fs.writeFile(path.join(dir, 'sets.json'), JSON.stringify(sets, null, 2))
   if (syncNative) {
-    for (const set of sets) if (set.nativeSetFile) await writeLinkedNativeSet(set)
+    const nativeGroups = new Map<string, ProjectSet[]>()
+    for (const set of sets) if (set.nativeSetFile) {
+      const file = path.basename(set.nativeSetFile)
+      nativeGroups.set(file, [...(nativeGroups.get(file) ?? []), set])
+    }
+    for (const group of nativeGroups.values()) await writeLinkedNativeSets(group)
     await fs.writeFile(path.join(dir, 'sets.json'), JSON.stringify(sets, null, 2))
   }
 }
@@ -621,27 +626,31 @@ function nativeItemFromCard(card: Card, columns: ColumnDefinition[]): Record<str
   return item
 }
 
-async function writeLinkedNativeSet(set: ProjectSet) {
-  if (!set.nativeSetFile || set.nativeSetIndex === undefined) return
-  const file = path.basename(set.nativeSetFile)
+async function writeLinkedNativeSets(linkedSets: ProjectSet[]) {
+  if (!linkedSets.length) return
+  const file = path.basename(linkedSets[0].nativeSetFile ?? '')
   const filePath = path.join(activeProject, 'data', 'sets', file)
   const original = await fs.readFile(filePath)
   const actualHash = sha256(original)
-  if (set.nativeSetHash && actualHash !== set.nativeSetHash) throw new Error(`Il set nativo ${file} è cambiato fuori da Card Studio. Ricollega o ricarica il set prima di salvare.`)
+  if (linkedSets.some((set) => set.nativeSetHash && actualHash !== set.nativeSetHash)) throw new Error(`Il set nativo ${file} è cambiato fuori da Card Studio. Ricollega o ricarica il set prima di salvare.`)
   const backupDirectory = path.join(activeProject, dataDirName, 'native-backups')
   await fs.mkdir(backupDirectory, { recursive: true })
   const backupPath = path.join(backupDirectory, `${file}.${actualHash.slice(0, 16)}.json`)
   if (!existsSync(backupPath)) await fs.copyFile(filePath, backupPath)
   const document = JSON.parse(original.toString('utf8'))
-  const nativeSet = document.sets?.[set.nativeSetIndex]
-  if (!nativeSet || !Array.isArray(nativeSet.items)) throw new Error(`Il set ${file} non ha più la struttura prevista.`)
-  nativeSet.items = set.cards.map((card) => nativeItemFromCard(card, set.columns))
-  for (let index = 0; index < set.cards.length; index += 1) set.cards[index].nativeItem = JSON.parse(JSON.stringify(nativeSet.items[index]))
+  for (const set of linkedSets) {
+    if (set.nativeSetIndex === undefined) continue
+    const nativeSet = document.sets?.[set.nativeSetIndex]
+    if (!nativeSet || !Array.isArray(nativeSet.items)) throw new Error(`Il set ${file} non ha più la struttura prevista.`)
+    nativeSet.items = set.cards.map((card) => nativeItemFromCard(card, set.columns))
+    for (let index = 0; index < set.cards.length; index += 1) set.cards[index].nativeItem = JSON.parse(JSON.stringify(nativeSet.items[index]))
+  }
   const serialized = JSON.stringify(document, null, 2)
   const temporary = `${filePath}.card-studio-${crypto.randomUUID()}.tmp`
   await fs.writeFile(temporary, serialized)
   await fs.rename(temporary, filePath)
-  set.nativeSetHash = sha256(serialized)
+  const nextHash = sha256(serialized)
+  for (const set of linkedSets) set.nativeSetHash = nextHash
 }
 
 async function loadBlueprints(): Promise<TabletopBlueprint[]> {
@@ -764,6 +773,89 @@ async function createNativeSet(setId: string, name: string, blueprintName: strin
   target.nativeSetHash = sha256(serialized)
   nativeSets = await scanNativeSets()
   await persistSets(false)
+  return snapshot()
+}
+
+async function duplicateProjectSet(setId: string): Promise<ProjectSnapshot> {
+  const source = sets.find((set) => set.id === setId)
+  if (!source) throw new Error('Il set da duplicare non esiste più.')
+  const names = new Set(sets.map((set) => set.name.toLocaleLowerCase()))
+  let copyName = `${source.name} copia`
+  let suffix = 2
+  while (names.has(copyName.toLocaleLowerCase())) copyName = `${source.name} copia ${suffix++}`
+  const duplicate: ProjectSet = {
+    ...source,
+    id: `set_${crypto.randomUUID()}`,
+    name: copyName,
+    sourceFile: undefined,
+    cards: source.cards.map((card) => ({ ...card, id: `card_${crypto.randomUUID()}`, tags: [...card.tags], values: { ...card.values }, nativeItem: card.nativeItem ? JSON.parse(JSON.stringify(card.nativeItem)) : undefined })),
+    columns: structuredClone(source.columns),
+    importBaseline: undefined,
+    importMatchFieldId: undefined,
+    nativeSetFile: undefined,
+    nativeSetIndex: undefined,
+    nativeSetHash: undefined,
+  }
+  if (source.nativeSetFile && source.nativeSetIndex !== undefined) {
+    const sourceFile = path.basename(source.nativeSetFile)
+    const sourcePath = path.join(activeProject, 'data', 'sets', sourceFile)
+    const original = await fs.readFile(sourcePath)
+    if (source.nativeSetHash && sha256(original) !== source.nativeSetHash) throw new Error(`Il set nativo ${sourceFile} è cambiato fuori da Card Studio. Ricaricalo prima di duplicarlo.`)
+    const document = JSON.parse(original.toString('utf8'))
+    const nativeSet = document.sets?.[source.nativeSetIndex]
+    if (!nativeSet) throw new Error('Non trovo il set nativo da duplicare.')
+    const nativeCopy = JSON.parse(JSON.stringify(nativeSet)) as Record<string, unknown>
+    const nativeNames = new Set(nativeSets.map((item) => item.name.toLocaleLowerCase()))
+    const baseNativeName = `${String(nativeSet.name || source.name)}_copy`
+    let nativeName = baseNativeName
+    let nativeSuffix = 2
+    while (nativeNames.has(nativeName.toLocaleLowerCase())) nativeName = `${baseNativeName}_${nativeSuffix++}`
+    nativeCopy.name = nativeName
+    nativeCopy.hint_order_index = nativeSets.length
+    const nativeItems = Array.isArray(nativeCopy.items) ? nativeCopy.items : []
+    duplicate.cards.forEach((card, index) => { card.nativeItem = JSON.parse(JSON.stringify(nativeItems[index] ?? card.nativeItem ?? {})) })
+    const nativeDocument = { ...document, sets: [nativeCopy] }
+    const serialized = JSON.stringify(nativeDocument, null, 2)
+    const directory = path.join(activeProject, 'data', 'sets')
+    let file = `${crypto.randomUUID()}.json`
+    while (existsSync(path.join(directory, file))) file = `${crypto.randomUUID()}.json`
+    await fs.writeFile(path.join(directory, file), serialized, { flag: 'wx' })
+    duplicate.nativeSetFile = file
+    duplicate.nativeSetIndex = 0
+    duplicate.nativeSetHash = sha256(serialized)
+    nativeSets = await scanNativeSets()
+  }
+  sets.push(duplicate)
+  activeSetId = duplicate.id
+  await persistSets(false)
+  return snapshot()
+}
+
+async function moveCardBetweenSets(cardId: string, targetSetId: string, draft?: Card): Promise<ProjectSnapshot> {
+  const source = activeSet()
+  const target = sets.find((set) => set.id === targetSetId)
+  if (!source) throw new Error('Il set corrente non esiste più.')
+  if (!target || target.id === source.id) throw new Error('Scegli un altro set come destinazione.')
+  const index = source.cards.findIndex((card) => card.id === cardId)
+  if (index < 0) throw new Error('La carta da spostare non esiste più nel set corrente.')
+  for (const set of [source, target]) {
+    if (!set.nativeSetFile || !set.nativeSetHash) continue
+    const file = path.basename(set.nativeSetFile)
+    const current = await fs.readFile(path.join(activeProject, 'data', 'sets', file))
+    if (sha256(current) !== set.nativeSetHash) throw new Error(`Il set nativo ${file} è cambiato fuori da Card Studio. Ricaricalo prima di spostare carte.`)
+  }
+  const card = draft ? resolveConditionalValues(source.columns, { ...draft, id: cardId, updatedAt: new Date().toISOString() }) : source.cards[index]
+  const values = { ...card.values }
+  for (const targetColumn of target.columns) {
+    if (values[targetColumn.fieldId] !== undefined) continue
+    const sourceColumn = source.columns.find((column) => column.fieldId === targetColumn.fieldId || column.header.trim().toLocaleLowerCase() === targetColumn.header.trim().toLocaleLowerCase() || (column.fieldLabel?.trim() && column.fieldLabel.trim().toLocaleLowerCase() === targetColumn.fieldLabel?.trim().toLocaleLowerCase()))
+    if (sourceColumn && values[sourceColumn.fieldId] !== undefined) values[targetColumn.fieldId] = values[sourceColumn.fieldId]
+  }
+  source.cards.splice(index, 1)
+  const targetTemplate = target.cards[0]?.nativeItem
+  target.cards.push({ ...card, values, nativeItem: targetTemplate ? JSON.parse(JSON.stringify(targetTemplate)) : undefined, updatedAt: new Date().toISOString() })
+  activeSetId = target.id
+  await persistSets()
   return snapshot()
 }
 
@@ -950,6 +1042,8 @@ app.whenReady().then(() => {
   ipcMain.handle('sets:select', async (_event, id: string) => { if (sets.some((set) => set.id === id)) activeSetId = id; return snapshot() })
   ipcMain.handle('sets:link-native', async (_event, setId: string, file: string, index: number) => connectNativeSet(setId, file, index))
   ipcMain.handle('sets:create-native', async (_event, setId: string, name: string, blueprintName: string) => createNativeSet(setId, name, blueprintName))
+  ipcMain.handle('sets:duplicate', async (_event, setId: string) => duplicateProjectSet(setId))
+  ipcMain.handle('cards:move', async (_event, cardId: string, targetSetId: string, draft?: Card) => moveCardBetweenSets(cardId, targetSetId, draft))
   ipcMain.handle('sets:rename', async (_event, id: string, name: string) => {
     const target = sets.find((set) => set.id === id)
     const trimmedName = name.trim()
