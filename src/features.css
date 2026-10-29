@@ -107,7 +107,7 @@
 .field-default-panel>.color-field{padding:2px 0}
 .field-default-panel .image-picker{margin:0}
 .variable-render-preview{display:flex;align-items:center;gap:2px;flex-wrap:wrap;white-space:pre-wrap;min-height:33px;padding:7px 9px;border:1px solid #e6dfd4;border-radius:3px;background:#f3f0e8;color:#645a4e;font-size:11px;line-height:1.5}
-.inline-variable-icon{display:inline-block;width:1.35em;height:1.35em;flex:0 0 1.35em;object-fit:contain;vertical-align:middle;margin:0 2px}
+.inline-variable-icon{display:inline-block;width:1.35em;height:1.35em;flex:0 0 1.35em;object-fit:contain;vertical-align:middle;margin:0 2px;mask-size:contain;-webkit-mask-size:contain;mask-position:center;-webkit-mask-position:center;mask-repeat:no-repeat;-webkit-mask-repeat:no-repeat}
 .icon-preview-fallback{max-width:190px;height:auto;min-height:20px;display:inline-flex;align-items:center;justify-content:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:2px 5px;border:1px dashed #cfc3b2;border-radius:3px;color:#8c7b68;font:8px var(--mono)}
 .variable-icon-preview,.variable-field-icon{display:flex;align-items:center;gap:8px;min-width:0;color:#95897a;font-size:9px}.variable-icon-preview{margin-top:3px}.variable-icon-preview .inline-variable-icon,.variable-field-icon .inline-variable-icon{width:28px;height:28px;flex-basis:28px;padding:3px;border:1px solid #e2dbcf;border-radius:3px;background:#f5f1e9}.variable-field-icon{margin:0 0 2px}.variable-field-icon span:last-child,.variable-icon-preview span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 
