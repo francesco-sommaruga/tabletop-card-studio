@@ -233,6 +233,7 @@ export interface CardCmsApi {
   openGitHub: () => Promise<void>
   exportExcel: (cardIds?: string[]) => Promise<{ path: string; count: number } | null>
   linkNativeSet: (setId: string, file: string, index: number) => Promise<ProjectSnapshot>
+  createNativeSet: (setId: string, name: string, blueprintName: string) => Promise<ProjectSnapshot>
 }
 
 declare global {

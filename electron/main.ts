@@ -736,6 +736,37 @@ async function connectNativeSet(setId: string, file: string, index: number): Pro
   return snapshot()
 }
 
+async function createNativeSet(setId: string, name: string, blueprintName: string): Promise<ProjectSnapshot> {
+  const target = sets.find((set) => set.id === setId)
+  const trimmedName = name.trim()
+  if (!target) throw new Error('Il set Card Studio da collegare non esiste più.')
+  if (!trimmedName) throw new Error('Inserisci un nome per il set Tabletop Creator.')
+  if (!blueprints.some((blueprint) => blueprint.name === blueprintName)) throw new Error('Scegli un blueprint presente nel progetto Tabletop Creator.')
+  if (nativeSets.some((nativeSet) => nativeSet.name.toLocaleLowerCase() === trimmedName.toLocaleLowerCase())) throw new Error(`Esiste già un set Tabletop Creator chiamato “${trimmedName}”.`)
+  const nativeSet = {
+    name: trimmedName,
+    blueprint_name: blueprintName,
+    hint_order_index: nativeSets.length,
+    zoom: 0,
+    collapsed: false,
+    items: target.cards.map((card) => nativeItemFromCard(card, target.columns)),
+  }
+  const document = { json_version: 5, sets: [nativeSet] }
+  const serialized = JSON.stringify(document, null, 2)
+  const directory = path.join(activeProject, 'data', 'sets')
+  await fs.mkdir(directory, { recursive: true })
+  let file = `${crypto.randomUUID()}.json`
+  while (existsSync(path.join(directory, file))) file = `${crypto.randomUUID()}.json`
+  await fs.writeFile(path.join(directory, file), serialized, { flag: 'wx' })
+  for (let index = 0; index < target.cards.length; index += 1) target.cards[index].nativeItem = JSON.parse(JSON.stringify(nativeSet.items[index]))
+  target.nativeSetFile = file
+  target.nativeSetIndex = 0
+  target.nativeSetHash = sha256(serialized)
+  nativeSets = await scanNativeSets()
+  await persistSets(false)
+  return snapshot()
+}
+
 async function listProjects(): Promise<ProjectSummary[]> {
   const listPath = path.join(app.getPath('userData'), 'projects.json')
   let entries: Array<{ path: string; lastOpened?: string }> = []
@@ -918,6 +949,7 @@ app.whenReady().then(() => {
   })
   ipcMain.handle('sets:select', async (_event, id: string) => { if (sets.some((set) => set.id === id)) activeSetId = id; return snapshot() })
   ipcMain.handle('sets:link-native', async (_event, setId: string, file: string, index: number) => connectNativeSet(setId, file, index))
+  ipcMain.handle('sets:create-native', async (_event, setId: string, name: string, blueprintName: string) => createNativeSet(setId, name, blueprintName))
   ipcMain.handle('sets:rename', async (_event, id: string, name: string) => {
     const target = sets.find((set) => set.id === id)
     const trimmedName = name.trim()

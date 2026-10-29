@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('cardCms', {
   searchIcons: (query: string, library: 'all' | 'tabletop' | 'project') => ipcRenderer.invoke('icons:search', query, library) as Promise<{ items: ProjectIconReference[]; total: number }>,
   selectSet: (id: string) => ipcRenderer.invoke('sets:select', id) as Promise<ProjectSnapshot>,
   linkNativeSet: (setId: string, file: string, index: number) => ipcRenderer.invoke('sets:link-native', setId, file, index) as Promise<ProjectSnapshot>,
+  createNativeSet: (setId: string, name: string, blueprintName: string) => ipcRenderer.invoke('sets:create-native', setId, name, blueprintName) as Promise<ProjectSnapshot>,
   renameSet: (id: string, name: string) => ipcRenderer.invoke('sets:rename', id, name) as Promise<ProjectSnapshot>,
   deleteSet: (id: string) => ipcRenderer.invoke('sets:delete', id) as Promise<ProjectSnapshot>,
   importWorkbooks: (plans: ImportPlan[]) => ipcRenderer.invoke('workbooks:import', plans) as Promise<ProjectSnapshot>,
