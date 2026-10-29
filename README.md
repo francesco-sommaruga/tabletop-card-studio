@@ -81,3 +81,7 @@ I tag e i tipi Card Studio delle variabili sono metadati separati salvati in `.t
 ## Nuove release
 
 I pacchetti Windows, macOS (Intel e Apple Silicon) e Linux vengono creati automaticamente quando viene pubblicato un tag `v*`.
+
+## Log diagnostico
+
+Card Studio registra avvio, operazioni sui set e dettagli degli errori in un log locale. Per aprirlo, vai in **Impostazioni progetto → Apri log diagnostico**. Il file si trova nella cartella dati utente dell’app, in `logs/tabletop-card-studio.log`. I contenuti delle carte non vengono registrati.

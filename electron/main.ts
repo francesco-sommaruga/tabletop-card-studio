@@ -18,6 +18,7 @@ let assets: ProjectAsset[] = []
 let variables: ProjectVariable[] = []
 let blueprints: TabletopBlueprint[] = []
 let nativeSets: NativeSetInfo[] = []
+let diagnosticQueue: Promise<void> = Promise.resolve()
 let iconCatalogCache: { projectPath: string; roots: string; icons: ProjectIconReference[] } | null = null
 const pendingMerges = new Map<string, { setId: string; matchFieldId: string; incoming: Card[]; selectedFieldIds: string[]; baselineFieldIds: string[]; restoreColumns: ColumnDefinition[] }>()
 const dataDirName = '.tabletop-card-studio'
@@ -25,6 +26,90 @@ const defaultColumns: ColumnDefinition[] = [
   { id: 'column_title', header: 'title', fieldId: 'meta_title', type: 'text' },
   { id: 'column_quantity', header: '[Item Amount]', fieldId: 'meta_quantity', type: 'number' },
 ]
+
+function diagnosticFilePath() {
+  return path.join(app.getPath('userData'), 'logs', 'tabletop-card-studio.log')
+}
+
+function writeDiagnostic(level: 'info' | 'error', event: string, details: Record<string, unknown> = {}) {
+  const record = JSON.stringify({ timestamp: new Date().toISOString(), level, event, projectPath: activeProject || undefined, ...details }) + '\n'
+  diagnosticQueue = diagnosticQueue.then(async () => {
+    const file = diagnosticFilePath()
+    await fs.mkdir(path.dirname(file), { recursive: true })
+    await fs.appendFile(file, record, 'utf8')
+  }).catch((error) => { console.error('Card Studio diagnostic log failed:', error) })
+  return diagnosticQueue
+}
+
+function summarizeDiagnosticArgs(channel: string, args: unknown[]) {
+  if (channel === 'cards:save') return { cardCount: Array.isArray(args[0]) ? args[0].length : undefined }
+  if (channel === 'columns:save') return { columnCount: Array.isArray(args[0]) ? args[0].length : undefined }
+  if (channel === 'cards:move') return { cardId: args[0], targetSetId: args[1] }
+  if (channel === 'blueprints:assignments-save') return { setIds: args[0] && typeof args[0] === 'object' ? Object.keys(args[0] as object) : [] }
+  if (channel === 'sets:link-native') return { setId: args[0], file: args[1], index: args[2] }
+  if (channel === 'sets:create-native') return { setId: args[0], name: args[1], blueprintName: args[2] }
+  if (channel === 'sets:resolve-name-conflict') return { setId: args[0], resolution: args[1] }
+  if (channel === 'sets:rename') return { setId: args[0], name: args[1] }
+  if (channel === 'sets:create') return { name: args[0] }
+  if (channel === 'sets:select' || channel === 'sets:unlink-native' || channel === 'sets:duplicate' || channel === 'sets:delete') return { setId: args[0] }
+  return {}
+}
+
+function registerLoggedHandler(channel: string, handler: (...args: any[]) => unknown) {
+  ipcMain.handle(channel, async (_event, ...args: unknown[]) => {
+    const operationId = crypto.randomUUID()
+    const details = summarizeDiagnosticArgs(channel, args)
+    const startedAt = Date.now()
+    const transactional = channel.startsWith('sets:') || channel === 'cards:save' || channel === 'columns:save' || channel === 'cards:move' || channel === 'blueprints:assignments-save'
+    const previousSets = transactional ? structuredClone(sets) : null
+    const previousActiveSetId = activeSetId
+    const previousNativeSets = transactional ? structuredClone(nativeSets) : null
+    await writeDiagnostic('info', 'operation.started', { operationId, channel, details })
+    try {
+      const result = await handler(...args)
+      await writeDiagnostic('info', 'operation.succeeded', { operationId, channel, durationMs: Date.now() - startedAt })
+      return result
+    } catch (error) {
+      if (previousSets) sets = previousSets
+      if (transactional) { activeSetId = previousActiveSetId; nativeSets = previousNativeSets ?? nativeSets }
+      await writeDiagnostic('error', 'operation.failed', {
+        operationId,
+        channel,
+        durationMs: Date.now() - startedAt,
+        details,
+        error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),
+      })
+      throw error
+    }
+  })
+}
+
+async function openDiagnosticLog() {
+  const file = diagnosticFilePath()
+  await fs.mkdir(path.dirname(file), { recursive: true })
+  await fs.appendFile(file, '')
+  await writeDiagnostic('info', 'diagnostic-log.opened')
+  const openError = await shell.openPath(file)
+  if (openError) throw new Error(`Impossibile aprire il log: ${openError}`)
+  return file
+}
+
+async function logLinkedNativeHashDrifts() {
+  const groups = new Map<string, ProjectSet[]>()
+  for (const set of sets) if (set.nativeSetFile) {
+    const file = path.basename(set.nativeSetFile)
+    groups.set(file, [...(groups.get(file) ?? []), set])
+  }
+  for (const [file, group] of groups) {
+    try {
+      const currentHash = sha256(await fs.readFile(path.join(activeProject, 'data', 'sets', file)))
+      const expectedHashes = [...new Set(group.map((set) => set.nativeSetHash).filter((hash): hash is string => Boolean(hash)))]
+      if (expectedHashes.some((hash) => hash !== currentHash)) await writeDiagnostic('error', 'native-set.hash-mismatch.on-open', { file, setNames: group.map((set) => set.name), currentHash, expectedHashes })
+    } catch (error) {
+      await writeDiagnostic('error', 'native-set.file-check-failed', { file, error: error instanceof Error ? { message: error.message, stack: error.stack } : String(error) })
+    }
+  }
+}
 
 function fieldIdFor(header: string) {
   return `field_${header.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'unnamed'}`
@@ -60,16 +145,26 @@ async function persistSets(syncNative = true) {
   if (!activeProject) return
   const dir = path.join(activeProject, dataDirName)
   await fs.mkdir(dir, { recursive: true })
-  await fs.writeFile(path.join(dir, 'sets.json'), JSON.stringify(sets, null, 2))
   if (syncNative) {
     const nativeGroups = new Map<string, ProjectSet[]>()
     for (const set of sets) if (set.nativeSetFile) {
       const file = path.basename(set.nativeSetFile)
       nativeGroups.set(file, [...(nativeGroups.get(file) ?? []), set])
     }
+    for (const [file, group] of nativeGroups) {
+      const filePath = path.join(activeProject, 'data', 'sets', file)
+      const currentHash = sha256(await fs.readFile(filePath))
+      const expected = [...new Set(group.map((set) => set.nativeSetHash).filter((hash): hash is string => Boolean(hash)))]
+      if (expected.some((hash) => hash !== currentHash)) {
+        await writeDiagnostic('error', 'native-set.hash-mismatch', { file, setNames: group.map((set) => set.name), currentHash, expectedHashes: expected })
+        throw new Error(`Il set nativo ${file} è cambiato fuori da Card Studio. Scollega e ricollega il set per importare le modifiche prima di continuare.`)
+      }
+    }
     for (const group of nativeGroups.values()) await writeLinkedNativeSets(group)
-    await fs.writeFile(path.join(dir, 'sets.json'), JSON.stringify(sets, null, 2))
   }
+  const tempPath = path.join(dir, `sets.json.card-studio-${crypto.randomUUID()}.tmp`)
+  await fs.writeFile(tempPath, JSON.stringify(sets, null, 2))
+  await fs.rename(tempPath, path.join(dir, 'sets.json'))
 }
 
 function simpleCellText(value: ExcelJS.CellValue | undefined): string {
@@ -566,6 +661,26 @@ function columnsFromNativeItems(items: Record<string, unknown>[], existing: Colu
   })
 }
 
+function columnsFromBlueprint(blueprintName: string, existing: ColumnDefinition[] = []): ColumnDefinition[] {
+  const blueprint = blueprints.find((item) => item.name === blueprintName)
+  if (!blueprint) return []
+  const headers = new Map<string, ColumnDefinition['type']>()
+  for (const group of [...(blueprint.front_groups ?? []), ...(blueprint.back_groups ?? []), ...(blueprint.front_layers ?? []), ...(blueprint.back_layers ?? [])]) {
+    for (const panel of group.panels ?? []) {
+      const data = panel.data ?? {}
+      if (String(data.panel_editable ?? '').toLocaleLowerCase() === 'false') continue
+      const panelType = String(data.panel_type ?? '').toLocaleLowerCase()
+      if (Object.prototype.hasOwnProperty.call(data, 'value')) headers.set(panel.name, panelType === 'image' ? 'image' : 'text')
+      if (Object.prototype.hasOwnProperty.call(data, 'color')) headers.set(`${panel.name}:color`, 'color')
+    }
+  }
+  return [...headers].map(([header, type]) => {
+    const prior = existing.find((column) => column.header.toLocaleLowerCase() === header.toLocaleLowerCase())
+    const fieldId = columnIdForNativeHeader(header)
+    return { ...(prior ?? {}), id: prior?.id ?? `column_${fieldId}`, header, fieldId, type: prior?.type ?? type ?? 'text' }
+  })
+}
+
 function nativeValue(detailMap: Map<string, Record<string, unknown>>, header: string): unknown {
   const separator = header.lastIndexOf(':')
   const name = separator >= 0 ? header.slice(0, separator) : header
@@ -752,6 +867,7 @@ async function openProject(folder: string): Promise<ProjectSnapshot> {
   nativeSets = await scanNativeSets()
   await fs.mkdir(storeDir, { recursive: true })
   if (normalizeBlueprintFieldSets()) await persistSets(false)
+  await logLinkedNativeHashDrifts()
   await persistProjectList()
   return snapshot()
 }
@@ -772,7 +888,8 @@ async function connectNativeSet(setId: string, file: string, index: number): Pro
   const rawItems = (nativeSet.items as unknown[]).filter((item: unknown): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
   const nativeBlueprintName = typeof nativeSet.blueprint_name === 'string' && nativeSet.blueprint_name ? nativeSet.blueprint_name : target.blueprintName
   const blueprintPeers = nativeBlueprintName ? sets.filter((set) => set.id !== target.id && set.blueprintName === nativeBlueprintName) : []
-  const columns = mergeColumnDefinitions(...blueprintPeers.map((set) => set.columns), columnsFromNativeItems(rawItems, target.columns))
+  const columns = mergeColumnDefinitions(...blueprintPeers.map((set) => set.columns), columnsFromBlueprint(nativeBlueprintName ?? '', target.columns), columnsFromNativeItems(rawItems, target.columns))
+  await writeDiagnostic('info', 'native-set.fields.discovered', { file: safeFile, nativeSetIndex: index, blueprintName: nativeBlueprintName || undefined, itemCount: rawItems.length, fieldCount: columns.length, fieldHeaders: columns.map((column) => column.header) })
   const existingByTitle = new Map<string, Card[]>()
   for (const card of target.cards) {
     const key = card.title.trim().toLocaleLowerCase()
@@ -1075,6 +1192,7 @@ async function gitAction(action: () => Promise<void>): Promise<GitStatus> {
 }
 
 async function createWindow() {
+  await writeDiagnostic('info', 'window.create', { appVersion: app.getVersion(), packaged: app.isPackaged, platform: process.platform })
   const iconPath = path.join(__dirname, app.isPackaged ? '../../renderer-dist/tabletop-card-studio.png' : '../../public/tabletop-card-studio.png')
   win = new BrowserWindow({
     width: 1440, height: 940, minWidth: 1080, minHeight: 700,
@@ -1087,6 +1205,12 @@ async function createWindow() {
 }
 
 app.whenReady().then(() => {
+  void writeDiagnostic('info', 'app.ready', { appVersion: app.getVersion(), platform: process.platform, arch: process.arch })
+  ipcMain.handle('diagnostics:open', openDiagnosticLog)
+  ipcMain.handle('diagnostics:renderer', async (_event, event: string, details?: Record<string, string | number | boolean | undefined>) => {
+    const safeDetails = Object.fromEntries(Object.entries(details ?? {}).filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value)).map(([key, value]) => [key.slice(0, 80), typeof value === 'string' ? value.slice(0, 2000) : value]))
+    await writeDiagnostic('error', `renderer.${String(event).slice(0, 100)}`, safeDetails)
+  })
   ipcMain.handle('project:open', async () => {
     const result = await dialog.showOpenDialog(win!, { title: 'Aggiungi cartella progetto', properties: ['openDirectory'] })
     return result.canceled ? null : openProject(result.filePaths[0])
@@ -1132,13 +1256,13 @@ app.whenReady().then(() => {
     const status = await readGitStatus()
     if (status.githubUrl) await shell.openExternal(status.githubUrl)
   })
-  ipcMain.handle('cards:save', async (_event, nextCards: Card[]) => {
+  registerLoggedHandler('cards:save', async (nextCards: Card[]) => {
     const current = activeSet()
     if (!current) return
     current.cards = nextCards
     await persistSets()
   })
-  ipcMain.handle('columns:save', async (_event, nextColumns: ColumnDefinition[]) => {
+  registerLoggedHandler('columns:save', async (nextColumns: ColumnDefinition[]) => {
     const current = activeSet()
     if (!current) return
     if (current.blueprintName) {
@@ -1150,7 +1274,7 @@ app.whenReady().then(() => {
     }
     await persistSets()
   })
-  ipcMain.handle('blueprints:assignments-save', async (_event, assignments: Record<string, string>) => saveBlueprintAssignments(assignments))
+  registerLoggedHandler('blueprints:assignments-save', async (assignments: Record<string, string>) => saveBlueprintAssignments(assignments))
   ipcMain.handle('variables:save', async (_event, nextVariables: ProjectVariable[]) => {
     if (!activeProject) throw new Error('Apri prima un progetto Tabletop Creator.')
     const filePath = path.join(activeProject, 'data', 'variables.json')
@@ -1176,14 +1300,14 @@ app.whenReady().then(() => {
     variables = nextVariables.map((variable) => ({ ...variable, studioType: variable.studioType ?? 'text' }))
     return snapshot()
   })
-  ipcMain.handle('sets:select', async (_event, id: string) => { if (sets.some((set) => set.id === id)) activeSetId = id; return snapshot() })
-  ipcMain.handle('sets:link-native', async (_event, setId: string, file: string, index: number) => connectNativeSet(setId, file, index))
-  ipcMain.handle('sets:create-native', async (_event, setId: string, name: string, blueprintName: string) => createNativeSet(setId, name, blueprintName))
-  ipcMain.handle('sets:unlink-native', async (_event, setId: string) => disconnectNativeSet(setId))
-  ipcMain.handle('sets:resolve-name-conflict', async (_event, setId: string, resolution: 'card-studio' | 'tabletop') => resolveNativeSetNameConflict(setId, resolution))
-  ipcMain.handle('sets:duplicate', async (_event, setId: string) => duplicateProjectSet(setId))
-  ipcMain.handle('cards:move', async (_event, cardId: string, targetSetId: string, draft?: Card) => moveCardBetweenSets(cardId, targetSetId, draft))
-  ipcMain.handle('sets:rename', async (_event, id: string, name: string) => {
+  registerLoggedHandler('sets:select', async (id: string) => { if (sets.some((set) => set.id === id)) activeSetId = id; return snapshot() })
+  registerLoggedHandler('sets:link-native', async (setId: string, file: string, index: number) => connectNativeSet(setId, file, index))
+  registerLoggedHandler('sets:create-native', async (setId: string, name: string, blueprintName: string) => createNativeSet(setId, name, blueprintName))
+  registerLoggedHandler('sets:unlink-native', async (setId: string) => disconnectNativeSet(setId))
+  registerLoggedHandler('sets:resolve-name-conflict', async (setId: string, resolution: 'card-studio' | 'tabletop') => resolveNativeSetNameConflict(setId, resolution))
+  registerLoggedHandler('sets:duplicate', async (setId: string) => duplicateProjectSet(setId))
+  registerLoggedHandler('cards:move', async (cardId: string, targetSetId: string, draft?: Card) => moveCardBetweenSets(cardId, targetSetId, draft))
+  registerLoggedHandler('sets:rename', async (id: string, name: string) => {
     const target = sets.find((set) => set.id === id)
     const trimmedName = name.trim()
     if (!target) throw new Error('Il set selezionato non esiste più.')
@@ -1193,7 +1317,7 @@ app.whenReady().then(() => {
     nativeSets = await scanNativeSets()
     return snapshot()
   })
-  ipcMain.handle('sets:delete', async (_event, id: string) => {
+  registerLoggedHandler('sets:delete', async (id: string) => {
     const targetIndex = sets.findIndex((set) => set.id === id)
     if (targetIndex < 0) throw new Error('Il set selezionato non esiste più.')
     sets.splice(targetIndex, 1)
@@ -1201,7 +1325,7 @@ app.whenReady().then(() => {
     await persistSets()
     return snapshot()
   })
-  ipcMain.handle('sets:create', async (_event, name: string) => {
+  registerLoggedHandler('sets:create', async (name: string) => {
     const set: ProjectSet = { id: `set_${crypto.randomUUID()}`, name: name.trim() || 'Nuovo set', cards: [], columns: structuredClone(defaultColumns) }
     sets.push(set)
     activeSetId = set.id

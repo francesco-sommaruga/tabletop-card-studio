@@ -211,6 +211,8 @@ export interface ProjectSnapshot {
 }
 
 export interface CardCmsApi {
+  openDiagnosticLog: () => Promise<string>
+  writeDiagnostic: (event: string, details?: Record<string, string | number | boolean | undefined>) => Promise<void>
   openProject: () => Promise<ProjectSnapshot | null>
   openProjectPath: (path: string) => Promise<ProjectSnapshot | null>
   loadRecent: () => Promise<ProjectSnapshot | null>
