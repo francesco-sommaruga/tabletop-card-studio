@@ -63,7 +63,7 @@ I pacchetti vengono generati in `dist/`.
 - Crea campi di testo, testo lungo, numero, select, colore (anche con alpha esadecimale `#RRGGBBAA`), immagine e variabile; riordina le colonne e salva le modifiche prima di applicarle.
 - Imposta un valore predefinito per ogni campo; con regole condizionali viene usato quando nessuna regola corrisponde. Senza default il campo resta vuoto.
 - Nascondi campi nell’editor senza escluderli dall’Excel e configura regole che compilano valori automaticamente in base ad altri campi (ad esempio colore predefinito quando un’icona è assegnata).
-- Assegna tag e stato alle carte, cerca e filtra per campi e ordina l’archivio.
+- Modifica i campi direttamente nelle righe dell’archivio, assegna tag e stato alle carte, cerca e filtra per campi e ordina l’elenco.
 - Scegli quali colonne mostrare nell’archivio: le colonne di base restano attive al primo avvio e le preferenze vengono salvate per progetto e set.
 - Apri un’anteprima ricostruita dai blueprint del progetto, con selezione del blueprint e vista fronte/retro.
 - Consulta statistiche per tag e proprietà, anche incrociando due campi e contando carte uniche o copie.

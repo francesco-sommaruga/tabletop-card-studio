@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import { Archive, ArrowDownToLine, ArrowRight, BarChart3, BookOpen, Braces, Check, ChevronDown, CircleHelp, CircleAlert, Columns3, Download, ExternalLink, Eye, EyeOff, FileImage, FileSpreadsheet, FolderPlus, GitBranch, Github, GripVertical, ImagePlus, Images, MoreHorizontal, Palette, Pencil, Plus, RefreshCw, Search, Sparkles, Tag, Trash2, Undo2, Upload, X } from 'lucide-react'
 import type { Card, CardStatus, ColumnDefinition, GitStatus, ImportPlan, ProjectAsset, ProjectSnapshot, ProjectSummary, ProjectVariable, TabletopBlueprint, TabletopBlueprintPanel, WorkbookMergePreview, WorkbookInfo } from './types'
 import { resolveConditionalValues } from './conditional'
@@ -64,6 +65,29 @@ function VariableTextPreview({ value, variables, projectPath, className = 'varia
   })}</Wrapper>
 }
 const blankCard = (): Card => ({ id: `card_${crypto.randomUUID()}`, title: 'Nuova carta', status: 'Idea', tags: [], quantity: 1, values: {}, updatedAt: new Date().toISOString() })
+
+function InlineTableCell({ fieldId, value, display, definition, assets, variables, projectPath, onSave }: { fieldId: string; value: string; display: ReactNode; definition?: ColumnDefinition; assets: ProjectAsset[]; variables: ProjectVariable[]; projectPath: string; onSave: (value: string) => void }) {
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState(value)
+  useEffect(() => { if (!editing) setDraft(value) }, [value, editing])
+  const type = definition?.type ?? (fieldId === 'meta_status' ? 'select' : fieldId === 'meta_quantity' ? 'number' : 'text')
+  const choices = fieldId === 'meta_status' ? statuses : definition?.options ?? []
+  const complex = type === 'image' || type === 'color' || type === 'variable'
+  const readOnly = Boolean(definition?.rules?.length) || fieldId === 'meta_updated'
+  const commit = () => { onSave(draft); setEditing(false) }
+  const cancel = () => { setDraft(value); setEditing(false) }
+  if (readOnly) return <span className="inline-cell-readonly" title={definition?.rules?.length ? 'Campo calcolato da regole automatiche' : undefined}>{display}</span>
+  if (!editing) return <button type="button" className="inline-cell-value" title="Fai clic per modificare" onClick={(event) => { event.stopPropagation(); setDraft(value); setEditing(true) }}>{display}<Pencil className="inline-cell-pencil" size={11}/></button>
+  return <span className={`inline-cell-editor ${complex ? 'has-actions' : ''}`} onClick={(event) => event.stopPropagation()}>
+    {type === 'image' ? <ImageField assets={assets} value={draft} onChange={setDraft} fieldName={definition?.header ?? fieldId}/>
+      : type === 'color' ? <ColorField value={draft} variables={variables} onChange={setDraft}/>
+      : type === 'variable' ? <VariableField variables={variables} tags={definition?.variableTags ?? []} value={draft} projectPath={projectPath} onChange={setDraft}/>
+      : type === 'select' ? <select autoFocus value={draft} onChange={(event) => { const next = event.target.value; setDraft(next); onSave(next); setEditing(false) }} onKeyDown={(event) => { if (event.key === 'Enter') commit(); if (event.key === 'Escape') cancel() }}><option value="">Seleziona…</option>{choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}</select>
+      : <input autoFocus type={type === 'number' ? 'number' : 'text'} value={draft} onChange={(event) => setDraft(event.target.value)} onBlur={() => { if (!complex) commit() }} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); commit() } if (event.key === 'Escape') cancel() }} aria-label={`Modifica ${definition?.header ?? (fieldId === 'meta_title' ? 'titolo' : fieldId === 'meta_tags' ? 'tag' : fieldId === 'meta_quantity' ? 'quantità' : 'stato')}`}/>
+    }
+    {complex && <span className="inline-cell-actions"><button type="button" onClick={commit} aria-label="Salva campo"><Check size={12}/></button><button type="button" onClick={cancel} aria-label="Annulla modifica"><X size={12}/></button></span>}
+  </span>
+}
 
 function App() {
   const [snapshot, setSnapshot] = useState<ProjectSnapshot | null>(null)
@@ -181,6 +205,15 @@ function App() {
     setSnapshot({ ...snapshot, cards: resolved, sets: snapshot.sets.map((set) => set.id === snapshot.activeSetId ? { ...set, cardCount: resolved.length } : set) })
     void window.cardCms.saveCards(resolved)
   }
+  const saveInlineField = (card: Card, fieldId: string, value: string) => {
+    const updated: Card = { ...card, updatedAt: new Date().toISOString() }
+    if (fieldId === 'meta_title') updated.title = value
+    else if (fieldId === 'meta_tags') updated.tags = [...new Set(value.split(',').map((tag) => tag.trim()).filter(Boolean))]
+    else if (fieldId === 'meta_status') updated.status = value as CardStatus
+    else if (fieldId === 'meta_quantity') updated.quantity = Math.max(1, Number(value) || 1)
+    else updated.values = { ...card.values, [fieldId]: value }
+    updateCards(cards.map((item) => item.id === card.id ? updated : item))
+  }
   const updateColumns = (next: ColumnDefinition[]) => {
     if (!snapshot) return
     const nextCards = snapshot.cards.map((card) => resolveConditionalValues(next, card))
@@ -288,22 +321,21 @@ function App() {
           <div className="table-head" style={{ gridTemplateColumns: tableGridTemplate }}>
             {visibleTableColumns.map((column) => <button key={column.fieldId} type="button" className={`table-sort ${column.className}`} onClick={() => toggleSort(column.fieldId)} aria-label={`Ordina per ${column.label}${sortIndicator(column.fieldId)}`} title={`Ordina per ${column.label}`}>{column.header.toLocaleUpperCase()}{sortIndicator(column.fieldId)}</button>)}<span className="col-action" />
           </div>
-          {filteredCards.length ? filteredCards.map((card, index) => <button key={card.id} className="card-row" style={{ gridTemplateColumns: tableGridTemplate }} onClick={() => setSelected(card)} aria-label={`Modifica ${card.title || 'carta senza titolo'}`}>
+          {filteredCards.length ? filteredCards.map((card, index) => <div key={card.id} className="card-row" style={{ gridTemplateColumns: tableGridTemplate }}>
             {visibleTableColumns.map((column) => {
-              if (column.fieldId === 'meta_title') return <span key={column.fieldId} className="card-name col-card"><span className={`card-index tone-${index % 4}`}>{String(index + 1).padStart(2, '0')}</span><span><strong>{card.title || 'Carta senza titolo'}</strong><small>{preview(card, columns, snapshot.assets, snapshot.variables, snapshot.projectPath)}</small></span></span>
-              if (column.fieldId === 'meta_tags') return <span key={column.fieldId} className="col-tags row-tags">{card.tags.length ? card.tags.slice(0, 3).map((tag) => <span className="tag-pill" key={tag}>{tag}</span>) : <span className="muted-dash">—</span>}{card.tags.length > 3 && <span className="tag-extra">+{card.tags.length - 3}</span>}</span>
-              if (column.fieldId === 'meta_status') return <span key={column.fieldId} className="col-status"><span className={`status-pill status-${card.status.toLowerCase()}`}><i />{card.status}</span></span>
-              if (column.fieldId === 'meta_quantity') return <span key={column.fieldId} className="col-qty quantity">{String(card.quantity).padStart(2, '0')}</span>
-              if (column.fieldId === 'meta_updated') return <span key={column.fieldId} className="col-updated updated">{formatDate(card.updatedAt)}</span>
+              if (column.fieldId === 'meta_title') return <InlineTableCell key={column.fieldId} fieldId={column.fieldId} value={card.title} assets={snapshot.assets} variables={snapshot.variables} projectPath={snapshot.projectPath} onSave={(value) => saveInlineField(card, column.fieldId, value)} display={<span className="card-name col-card"><span className={`card-index tone-${index % 4}`}>{String(index + 1).padStart(2, '0')}</span><span><strong>{card.title || 'Carta senza titolo'}</strong><small>{preview(card, columns, snapshot.assets, snapshot.variables, snapshot.projectPath)}</small></span></span>}/>
+              if (column.fieldId === 'meta_tags') return <InlineTableCell key={column.fieldId} fieldId={column.fieldId} value={card.tags.join(', ')} assets={snapshot.assets} variables={snapshot.variables} projectPath={snapshot.projectPath} onSave={(value) => saveInlineField(card, column.fieldId, value)} display={<span className="col-tags row-tags">{card.tags.length ? card.tags.slice(0, 3).map((tag) => <span className="tag-pill" key={tag}>{tag}</span>) : <span className="muted-dash">—</span>}{card.tags.length > 3 && <span className="tag-extra">+{card.tags.length - 3}</span>}</span>}/>
+              if (column.fieldId === 'meta_status') return <InlineTableCell key={column.fieldId} fieldId={column.fieldId} value={card.status} assets={snapshot.assets} variables={snapshot.variables} projectPath={snapshot.projectPath} onSave={(value) => saveInlineField(card, column.fieldId, value)} display={<span className="col-status"><span className={`status-pill status-${card.status.toLowerCase()}`}><i />{card.status}</span></span>}/>
+              if (column.fieldId === 'meta_quantity') return <InlineTableCell key={column.fieldId} fieldId={column.fieldId} value={String(card.quantity)} assets={snapshot.assets} variables={snapshot.variables} projectPath={snapshot.projectPath} onSave={(value) => saveInlineField(card, column.fieldId, value)} display={<span className="col-qty quantity">{String(card.quantity).padStart(2, '0')}</span>}/>
+              if (column.fieldId === 'meta_updated') return <InlineTableCell key={column.fieldId} fieldId={column.fieldId} value={card.updatedAt} assets={snapshot.assets} variables={snapshot.variables} projectPath={snapshot.projectPath} onSave={() => undefined} display={<span className="col-updated updated">{formatDate(card.updatedAt)}</span>}/>
               const definition = columns.find((item) => item.fieldId === column.fieldId)
               const value = card.values[column.fieldId]?.trim() ?? ''
               const asset = definition?.type === 'image' ? snapshot.assets.find((item) => item.path === value || item.name === value) : undefined
-              if (definition?.type === 'image' && asset?.previewUrl) return <span key={column.fieldId} className="table-image-cell" title={asset.name}><img src={asset.previewUrl} alt=""/><small>{asset.name}</small></span>
-              if (definition?.type === 'color' && value) return <span key={column.fieldId} className="table-custom-cell" title={value}><i className="table-color-swatch" style={{ backgroundColor: value }}/><span>{value}</span></span>
-              return <span key={column.fieldId} className="table-custom-cell" title={value || '—'}>{value || <span className="muted-dash">—</span>}</span>
+              const display = definition?.type === 'image' && asset?.previewUrl ? <span className="table-image-cell" title={asset.name}><img src={asset.previewUrl} alt=""/><small>{asset.name}</small></span> : definition?.type === 'color' && value ? <span className="table-custom-cell" title={value}><i className="table-color-swatch" style={{ backgroundColor: value }}/><span>{value}</span></span> : <span className="table-custom-cell" title={value || '—'}>{value || <span className="muted-dash">—</span>}</span>
+              return <InlineTableCell key={column.fieldId} fieldId={column.fieldId} value={value} display={display} definition={definition} assets={snapshot.assets} variables={snapshot.variables} projectPath={snapshot.projectPath} onSave={(next) => saveInlineField(card, column.fieldId, next)}/>
             })}
-            <span className="col-action row-chevron"><ArrowRight size={15} /></span>
-          </button>) : <div className="empty-list"><div className="empty-mark"><BookOpen size={21} /></div><strong>{search || activeTag || filterStatus !== 'Tutti gli stati' || propertyFilterValue ? 'Nessuna carta corrisponde.' : 'Il set comincia da qui.'}</strong><span>{cards.length ? 'Prova a cambiare i filtri oppure aggiungi una carta.' : 'Importa un foglio o crea una nuova carta.'}</span>{!cards.length && <div className="empty-actions"><button className="button button-primary" onClick={addCard}><Plus size={15} />Crea carta</button><button className="text-button" onClick={() => void refreshWorkbooks()}><FileSpreadsheet size={15} />Importa Excel</button></div>}</div>}
+            <button type="button" className="col-action row-chevron inline-row-open" onClick={() => setSelected(card)} aria-label={`Apri ${card.title} nell'editor`}><ArrowRight size={15} /></button>
+          </div>) : <div className="empty-list"><div className="empty-mark"><BookOpen size={21} /></div><strong>{search || activeTag || filterStatus !== 'Tutti gli stati' || propertyFilterValue ? 'Nessuna carta corrisponde.' : 'Il set comincia da qui.'}</strong><span>{cards.length ? 'Prova a cambiare i filtri oppure aggiungi una carta.' : 'Importa un foglio o crea una nuova carta.'}</span>{!cards.length && <div className="empty-actions"><button className="button button-primary" onClick={addCard}><Plus size={15} />Crea carta</button><button className="text-button" onClick={() => void refreshWorkbooks()}><FileSpreadsheet size={15} />Importa Excel</button></div>}</div>}
         </div>
         <footer className="page-foot"><span><span className="live-dot" />SALVATAGGIO AUTOMATICO</span><span>{snapshot.projectPath}</span></footer>
       </div> : <ColumnsPage key={snapshot.activeSetId} columns={columns} assets={snapshot.assets} variables={snapshot.variables} onSave={updateColumns} onDirty={setFieldsDirty} onExport={exportCards} />}
