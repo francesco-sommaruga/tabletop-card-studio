@@ -64,6 +64,7 @@ I pacchetti vengono generati in `dist/`.
 - Imposta un valore predefinito per ogni campo; con regole condizionali viene usato quando nessuna regola corrisponde. Senza default il campo resta vuoto.
 - Nascondi campi nell’editor senza escluderli dall’Excel e configura regole che compilano valori automaticamente in base ad altri campi (ad esempio colore predefinito quando un’icona è assegnata).
 - Assegna tag e stato alle carte, cerca e filtra per campi e ordina l’archivio.
+- Apri un’anteprima ricostruita dai blueprint del progetto, con selezione del blueprint e vista fronte/retro.
 - Consulta statistiche per tag e proprietà, anche incrociando due campi e contando carte uniche o copie.
 - Crea e modifica le variabili di `data/variables.json`, assegnagli tag o i tipi Card Studio **Colore salvato** e **Icona**. Le icone Tabletop Creator e quelle in `assets/icons/` vengono mostrate in anteprima nei campi testo e variabile. I campi variabile restano modificabili, salvo quando hanno regole condizionali.
 - Gestisci gli asset del progetto e usa le variabili di Tabletop Creator nei campi testuali.

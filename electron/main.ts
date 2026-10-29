@@ -4,7 +4,7 @@ import path from 'node:path'
 import fs from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
 import ExcelJS from 'exceljs'
-import type { Card, ColumnDefinition, GitCommitSummary, GitFileStatus, GitStatus, ImportPlan, MergeFieldChange, MergeFieldConflict, ProjectAsset, ProjectSet, ProjectSnapshot, ProjectSummary, ProjectVariable, WorkbookInfo, WorkbookMergePreview } from '../src/types'
+import type { Card, ColumnDefinition, GitCommitSummary, GitFileStatus, GitStatus, ImportPlan, MergeFieldChange, MergeFieldConflict, ProjectAsset, ProjectSet, ProjectSnapshot, ProjectSummary, ProjectVariable, TabletopBlueprint, WorkbookInfo, WorkbookMergePreview } from '../src/types'
 import { resolveConditionalValues } from '../src/conditional'
 
 let win: BrowserWindow | null = null
@@ -15,6 +15,7 @@ let activeSetId: string | null = null
 let workbooks: WorkbookInfo[] = []
 let assets: ProjectAsset[] = []
 let variables: ProjectVariable[] = []
+let blueprints: TabletopBlueprint[] = []
 const pendingMerges = new Map<string, { setId: string; matchFieldId: string; incoming: Card[]; selectedFieldIds: string[]; baselineFieldIds: string[]; restoreColumns: ColumnDefinition[] }>()
 const dataDirName = '.tabletop-card-studio'
 const defaultColumns: ColumnDefinition[] = [
@@ -47,6 +48,7 @@ function snapshot(): ProjectSnapshot {
     workbooks,
     assets,
     variables,
+    blueprints,
   }
 }
 
@@ -467,6 +469,21 @@ async function loadVariables(): Promise<ProjectVariable[]> {
   } catch { return [] }
 }
 
+async function loadBlueprints(): Promise<TabletopBlueprint[]> {
+  if (!activeProject) return []
+  const directory = path.join(activeProject, 'data', 'blueprints')
+  let files: string[]
+  try { files = (await fs.readdir(directory)).filter((file) => file.toLowerCase().endsWith('.json')).sort() }
+  catch { return [] }
+  const loaded = await Promise.all(files.map(async (file) => {
+    try {
+      const document = JSON.parse(await fs.readFile(path.join(directory, file), 'utf8'))
+      return Array.isArray(document.blueprints) ? document.blueprints.filter((blueprint: unknown): blueprint is TabletopBlueprint => typeof blueprint === 'object' && blueprint !== null && typeof (blueprint as TabletopBlueprint).name === 'string') : []
+    } catch { return [] }
+  }))
+  return loaded.flat()
+}
+
 async function persistProjectList() {
   const listPath = path.join(app.getPath('userData'), 'projects.json')
   let list: Array<{ path: string; lastOpened: string }> = []
@@ -498,6 +515,7 @@ async function openProject(folder: string): Promise<ProjectSnapshot> {
   workbooks = await scanWorkbooks()
   assets = await scanAssets()
   variables = await loadVariables()
+  blueprints = await loadBlueprints()
   await fs.mkdir(storeDir, { recursive: true })
   await persistProjectList()
   return snapshot()

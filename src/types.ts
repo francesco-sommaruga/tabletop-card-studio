@@ -69,6 +69,27 @@ export interface ProjectVariable {
   [key: string]: unknown
 }
 
+export interface TabletopBlueprintPanel {
+  name: string
+  data: Record<string, string>
+}
+
+export interface TabletopBlueprintGroup {
+  name: string
+  panels: TabletopBlueprintPanel[]
+}
+
+export interface TabletopBlueprint {
+  name: string
+  type?: string
+  layout_size_mm?: string
+  shape_settings?: Record<string, string>
+  front_groups?: TabletopBlueprintGroup[]
+  back_groups?: TabletopBlueprintGroup[]
+  front_layers?: TabletopBlueprintGroup[]
+  back_layers?: TabletopBlueprintGroup[]
+}
+
 export interface ProjectSummary {
   path: string
   name: string
@@ -159,6 +180,7 @@ export interface ProjectSnapshot {
   workbooks: WorkbookInfo[]
   assets: ProjectAsset[]
   variables: ProjectVariable[]
+  blueprints: TabletopBlueprint[]
 }
 
 export interface CardCmsApi {
