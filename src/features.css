@@ -81,6 +81,15 @@
 /* Cards are sorted directly from the existing dataset headers. */
 .cards-table .table-sort{height:100%;min-width:0;display:flex;align-items:center;gap:4px;padding:0;border:0;background:transparent;color:inherit;text-align:left;font:inherit;letter-spacing:inherit;white-space:nowrap;cursor:pointer}
 .cards-table .table-sort:hover,.cards-table .table-sort:focus-visible{color:#a95539}
+.color-field-control{display:grid;gap:5px;width:100%;min-width:0}
+.color-alpha-control{display:grid;grid-template-columns:62px minmax(0,1fr) 34px;align-items:center;gap:8px;min-width:0;color:#958b7e}
+.color-alpha-control>span{font:8px var(--mono);letter-spacing:.08em}
+.color-alpha-control input[type=range]{width:100%;min-width:0;height:15px;margin:0;accent-color:#a95539;cursor:pointer}
+.color-alpha-control input[type=range]:disabled{opacity:.45;cursor:default}
+.color-alpha-control output{text-align:right;color:#766c60;font:9px var(--mono)}
+.conditional-rule .color-alpha-control{grid-template-columns:48px minmax(25px,1fr) 27px;gap:4px}
+.conditional-rule .color-alpha-control>span{font-size:7px}
+.conditional-rule .color-alpha-control output{font-size:8px}
 .schema-default-badge{height:20px;display:inline-flex;align-items:center;padding:0 5px;border:1px solid #d7ccb8;border-radius:3px;background:#eee9df;color:#74634d;font:7px var(--mono);letter-spacing:.04em;text-transform:uppercase;white-space:nowrap}
 .field-default-editor{border-top:1px solid #e6dfd4;padding-top:2px}
 .field-default-editor>summary{min-height:30px;display:flex;align-items:center;justify-content:space-between;gap:10px;list-style:none;cursor:pointer;color:#8b7b6b;font-size:9px}

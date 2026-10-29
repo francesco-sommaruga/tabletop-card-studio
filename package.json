@@ -1,6 +1,6 @@
 {
   "name": "tabletop-card-cms",
-  "version": "0.2.17",
+  "version": "0.2.18",
   "private": true,
   "description": "Desktop CMS for tabletop card projects with configurable Excel export.",
   "author": "Tabletop Card Studio",
