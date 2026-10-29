@@ -1,10 +1,11 @@
 import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from 'electron'
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
 import ExcelJS from 'exceljs'
-import type { Card, ColumnDefinition, GitCommitSummary, GitFileStatus, GitStatus, ImportPlan, MergeFieldChange, MergeFieldConflict, ProjectAsset, ProjectIconReference, ProjectSet, ProjectSnapshot, ProjectSummary, ProjectVariable, TabletopBlueprint, WorkbookInfo, WorkbookMergePreview } from '../src/types'
+import type { Card, ColumnDefinition, GitCommitSummary, GitFileStatus, GitStatus, ImportPlan, MergeFieldChange, MergeFieldConflict, NativeSetInfo, ProjectAsset, ProjectIconReference, ProjectSet, ProjectSnapshot, ProjectSummary, ProjectVariable, TabletopBlueprint, WorkbookInfo, WorkbookMergePreview } from '../src/types'
 import { resolveConditionalValues } from '../src/conditional'
 
 let win: BrowserWindow | null = null
@@ -16,6 +17,7 @@ let workbooks: WorkbookInfo[] = []
 let assets: ProjectAsset[] = []
 let variables: ProjectVariable[] = []
 let blueprints: TabletopBlueprint[] = []
+let nativeSets: NativeSetInfo[] = []
 let iconCatalogCache: { projectPath: string; roots: string; icons: ProjectIconReference[] } | null = null
 const pendingMerges = new Map<string, { setId: string; matchFieldId: string; incoming: Card[]; selectedFieldIds: string[]; baselineFieldIds: string[]; restoreColumns: ColumnDefinition[] }>()
 const dataDirName = '.tabletop-card-studio'
@@ -44,20 +46,25 @@ function snapshot(): ProjectSnapshot {
     projectName,
     cards: current?.cards ?? [],
     columns: current?.columns ?? [],
-    sets: sets.map(({ id, name, sourceFile, cards }) => ({ id, name, sourceFile, cardCount: cards.length })),
+    sets: sets.map(({ id, name, sourceFile, nativeSetFile, cards }) => ({ id, name, sourceFile, nativeSetFile, cardCount: cards.length })),
     activeSetId,
     workbooks,
     assets,
     variables,
     blueprints,
+    nativeSets,
   }
 }
 
-async function persistSets() {
+async function persistSets(syncNative = true) {
   if (!activeProject) return
   const dir = path.join(activeProject, dataDirName)
   await fs.mkdir(dir, { recursive: true })
   await fs.writeFile(path.join(dir, 'sets.json'), JSON.stringify(sets, null, 2))
+  if (syncNative) {
+    for (const set of sets) if (set.nativeSetFile) await writeLinkedNativeSet(set)
+    await fs.writeFile(path.join(dir, 'sets.json'), JSON.stringify(sets, null, 2))
+  }
 }
 
 function simpleCellText(value: ExcelJS.CellValue | undefined): string {
@@ -508,6 +515,135 @@ async function loadVariables(): Promise<ProjectVariable[]> {
   } catch { return [] }
 }
 
+function sha256(data: string | Buffer) { return createHash('sha256').update(data).digest('hex') }
+
+async function scanNativeSets(): Promise<NativeSetInfo[]> {
+  const directory = path.join(activeProject, 'data', 'sets')
+  let files: string[]
+  try { files = (await fs.readdir(directory)).filter((file) => file.toLowerCase().endsWith('.json')).sort() }
+  catch { return [] }
+  const result: NativeSetInfo[] = []
+  for (const file of files) {
+    try {
+      const document = JSON.parse(await fs.readFile(path.join(directory, file), 'utf8'))
+      if (!Array.isArray(document.sets)) continue
+      document.sets.forEach((set: Record<string, unknown>, index: number) => {
+        if (typeof set.name !== 'string' || !Array.isArray(set.items)) return
+        result.push({ file, index, name: set.name, blueprintName: typeof set.blueprint_name === 'string' ? set.blueprint_name : '', itemCount: set.items.length })
+      })
+    } catch { /* ignore malformed or incomplete JSON files */ }
+  }
+  return result
+}
+
+function columnIdForNativeHeader(header: string) {
+  if (['title', 'name', 'nome', 'titolo'].includes(header.trim().toLocaleLowerCase())) return 'meta_title'
+  if (['[item amount]', 'amount', 'quantità', 'quantita'].includes(header.trim().toLocaleLowerCase())) return 'meta_quantity'
+  return fieldIdFor(header)
+}
+
+function columnsFromNativeItems(items: Record<string, unknown>[], existing: ColumnDefinition[]): ColumnDefinition[] {
+  const headers = new Set<string>(['[Item Amount]', 'title'])
+  for (const item of items) {
+    const details = Array.isArray(item.details) ? item.details : []
+    for (const detail of details) {
+      if (!detail || typeof detail !== 'object') continue
+      const record = detail as { name?: unknown; data?: unknown }
+      if (typeof record.name !== 'string' || !record.data || typeof record.data !== 'object') continue
+      for (const property of Object.keys(record.data)) headers.add(property === 'value' ? record.name : `${record.name}:${property}`)
+    }
+  }
+  return [...headers].map((header) => {
+    const prior = existing.find((column) => column.header.toLocaleLowerCase() === header.toLocaleLowerCase())
+    const fieldId = columnIdForNativeHeader(header)
+    return { ...(prior ?? {}), id: prior?.id ?? `column_${fieldId}`, header, fieldId, type: prior?.type ?? guessFieldType(header) ?? 'text' }
+  })
+}
+
+function nativeValue(detailMap: Map<string, Record<string, unknown>>, header: string): unknown {
+  const separator = header.lastIndexOf(':')
+  const name = separator >= 0 ? header.slice(0, separator) : header
+  const property = separator >= 0 ? header.slice(separator + 1) : 'value'
+  return (detailMap.get(name) ?? {})[property]
+}
+
+function nativeCard(title: string, item: Record<string, unknown>, columns: ColumnDefinition[], existing?: Card): Card {
+  const detailMap = new Map<string, Record<string, unknown>>()
+  for (const detail of Array.isArray(item.details) ? item.details : []) {
+    if (!detail || typeof detail !== 'object') continue
+    const record = detail as { name?: unknown; data?: unknown }
+    if (typeof record.name === 'string' && record.data && typeof record.data === 'object') detailMap.set(record.name, record.data as Record<string, unknown>)
+  }
+  const titleValue = String(nativeValue(detailMap, 'title') ?? title)
+  const values: Record<string, string> = {}
+  for (const column of columns) {
+    if (column.fieldId === 'meta_title' || column.fieldId === 'meta_quantity') continue
+    const value = nativeValue(detailMap, column.header)
+    if (value !== null && value !== undefined) values[column.fieldId] = String(value)
+  }
+  const modified = Number(item.last_modification_date_unix)
+  return {
+    id: existing?.id ?? `card_${crypto.randomUUID()}`,
+    title: titleValue,
+    status: existing?.status ?? 'Idea',
+    tags: existing?.tags ? [...existing.tags] : [],
+    quantity: Math.max(1, Number(item.amount) || 1),
+    values: { ...(existing?.values ?? {}), ...values },
+    updatedAt: existing?.updatedAt ?? (Number.isFinite(modified) && modified > 0 ? new Date(modified * 1000).toISOString() : new Date().toISOString()),
+    nativeItem: JSON.parse(JSON.stringify(item)),
+  }
+}
+
+function nativeItemFromCard(card: Card, columns: ColumnDefinition[]): Record<string, unknown> {
+  const item = card.nativeItem ? JSON.parse(JSON.stringify(card.nativeItem)) as Record<string, unknown> : { amount: card.quantity, creation_date_unix: Math.floor(Date.now() / 1000), last_modification_date_unix: Math.floor(Date.now() / 1000), details: [] }
+  let nativeChanged = !card.nativeItem
+  if (Number(item.amount) !== card.quantity) nativeChanged = true
+  item.amount = card.quantity
+  const details = Array.isArray(item.details) ? item.details as Array<Record<string, unknown>> : []
+  item.details = details
+  for (const column of columns) {
+    if (column.fieldId === 'meta_quantity') continue
+    const separator = column.header.lastIndexOf(':')
+    const name = separator >= 0 ? column.header.slice(0, separator) : column.header
+    const property = separator >= 0 ? column.header.slice(separator + 1) : 'value'
+    let detail = details.find((candidate) => candidate.name === name)
+    if (!detail) { detail = { name, data: {} }; details.push(detail); nativeChanged = true }
+    const data = detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data) ? detail.data as Record<string, unknown> : (detail.data = {}) as Record<string, unknown>
+    const value = cardFieldValue(card, column.fieldId)
+    const current = data[property]
+    let nextValue: unknown = value
+    if (typeof current === 'number' && value.trim() && Number.isFinite(Number(value))) nextValue = Number(value)
+    else if (typeof current === 'boolean') nextValue = ['true', '1', 'yes'].includes(value.toLocaleLowerCase())
+    if (JSON.stringify(current) !== JSON.stringify(nextValue)) nativeChanged = true
+    data[property] = nextValue
+  }
+  if (nativeChanged) item.last_modification_date_unix = Math.floor(Date.now() / 1000)
+  return item
+}
+
+async function writeLinkedNativeSet(set: ProjectSet) {
+  if (!set.nativeSetFile || set.nativeSetIndex === undefined) return
+  const file = path.basename(set.nativeSetFile)
+  const filePath = path.join(activeProject, 'data', 'sets', file)
+  const original = await fs.readFile(filePath)
+  const actualHash = sha256(original)
+  if (set.nativeSetHash && actualHash !== set.nativeSetHash) throw new Error(`Il set nativo ${file} è cambiato fuori da Card Studio. Ricollega o ricarica il set prima di salvare.`)
+  const backupDirectory = path.join(activeProject, dataDirName, 'native-backups')
+  await fs.mkdir(backupDirectory, { recursive: true })
+  const backupPath = path.join(backupDirectory, `${file}.${actualHash.slice(0, 16)}.json`)
+  if (!existsSync(backupPath)) await fs.copyFile(filePath, backupPath)
+  const document = JSON.parse(original.toString('utf8'))
+  const nativeSet = document.sets?.[set.nativeSetIndex]
+  if (!nativeSet || !Array.isArray(nativeSet.items)) throw new Error(`Il set ${file} non ha più la struttura prevista.`)
+  nativeSet.items = set.cards.map((card) => nativeItemFromCard(card, set.columns))
+  for (let index = 0; index < set.cards.length; index += 1) set.cards[index].nativeItem = JSON.parse(JSON.stringify(nativeSet.items[index]))
+  const serialized = JSON.stringify(document, null, 2)
+  const temporary = `${filePath}.card-studio-${crypto.randomUUID()}.tmp`
+  await fs.writeFile(temporary, serialized)
+  await fs.rename(temporary, filePath)
+  set.nativeSetHash = sha256(serialized)
+}
+
 async function loadBlueprints(): Promise<TabletopBlueprint[]> {
   if (!activeProject) return []
   const directory = path.join(activeProject, 'data', 'blueprints')
@@ -555,8 +691,48 @@ async function openProject(folder: string): Promise<ProjectSnapshot> {
   assets = await scanAssets()
   variables = await loadVariables()
   blueprints = await loadBlueprints()
+  nativeSets = await scanNativeSets()
   await fs.mkdir(storeDir, { recursive: true })
   await persistProjectList()
+  return snapshot()
+}
+
+async function connectNativeSet(setId: string, file: string, index: number): Promise<ProjectSnapshot> {
+  const target = sets.find((set) => set.id === setId)
+  if (!target) throw new Error('Il set Card Studio da collegare non esiste più.')
+  const safeFile = path.basename(file)
+  if (safeFile !== file || !safeFile.toLowerCase().endsWith('.json')) throw new Error('Il file del set nativo non è valido.')
+  const filePath = path.join(activeProject, 'data', 'sets', safeFile)
+  const raw = await fs.readFile(filePath)
+  const document = JSON.parse(raw.toString('utf8'))
+  const nativeSet = document.sets?.[index]
+  if (!nativeSet || !Array.isArray(nativeSet.items)) throw new Error('Il set selezionato non è più disponibile nel progetto.')
+  const rawItems = (nativeSet.items as unknown[]).filter((item: unknown): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
+  const columns = columnsFromNativeItems(rawItems, target.columns)
+  const existingByTitle = new Map<string, Card[]>()
+  for (const card of target.cards) {
+    const key = card.title.trim().toLocaleLowerCase()
+    existingByTitle.set(key, [...(existingByTitle.get(key) ?? []), card])
+  }
+  const cards = rawItems.map((item, itemIndex) => {
+    const details = new Map<string, Record<string, unknown>>()
+    for (const detail of Array.isArray(item.details) ? item.details : []) {
+      if (!detail || typeof detail !== 'object') continue
+      const record = detail as { name?: unknown; data?: unknown }
+      if (typeof record.name === 'string' && record.data && typeof record.data === 'object') details.set(record.name, record.data as Record<string, unknown>)
+    }
+    const title = String(details.get('title')?.value ?? `Carta ${itemIndex + 1}`).trim().toLocaleLowerCase()
+    const existing = existingByTitle.get(title)?.shift()
+    return nativeCard(`Carta ${itemIndex + 1}`, item, columns, existing)
+  })
+  target.cards = cards
+  target.columns = columns
+  target.nativeSetFile = safeFile
+  target.nativeSetIndex = index
+  target.nativeSetHash = sha256(raw)
+  activeSetId = target.id
+  nativeSets = await scanNativeSets()
+  await persistSets(false)
   return snapshot()
 }
 
@@ -741,6 +917,7 @@ app.whenReady().then(() => {
     return snapshot()
   })
   ipcMain.handle('sets:select', async (_event, id: string) => { if (sets.some((set) => set.id === id)) activeSetId = id; return snapshot() })
+  ipcMain.handle('sets:link-native', async (_event, setId: string, file: string, index: number) => connectNativeSet(setId, file, index))
   ipcMain.handle('sets:rename', async (_event, id: string, name: string) => {
     const target = sets.find((set) => set.id === id)
     const trimmedName = name.trim()

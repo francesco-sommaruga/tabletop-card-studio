@@ -8,6 +8,7 @@ export interface Card {
   quantity: number
   values: Record<string, string>
   updatedAt: string
+  nativeItem?: Record<string, unknown>
 }
 
 export interface ImportBaselineRow {
@@ -45,6 +46,17 @@ export interface ProjectSet {
   columns: ColumnDefinition[]
   importBaseline?: ImportBaselineRow[]
   importMatchFieldId?: string
+  nativeSetFile?: string
+  nativeSetIndex?: number
+  nativeSetHash?: string
+}
+
+export interface NativeSetInfo {
+  file: string
+  index: number
+  name: string
+  blueprintName: string
+  itemCount: number
 }
 
 export interface WorkbookInfo {
@@ -183,12 +195,13 @@ export interface ProjectSnapshot {
   projectName: string
   cards: Card[]
   columns: ColumnDefinition[]
-  sets: Array<Pick<ProjectSet, 'id' | 'name' | 'sourceFile'> & { cardCount: number }>
+  sets: Array<Pick<ProjectSet, 'id' | 'name' | 'sourceFile' | 'nativeSetFile'> & { cardCount: number }>
   activeSetId: string | null
   workbooks: WorkbookInfo[]
   assets: ProjectAsset[]
   variables: ProjectVariable[]
   blueprints: TabletopBlueprint[]
+  nativeSets: NativeSetInfo[]
 }
 
 export interface CardCmsApi {
@@ -219,6 +232,7 @@ export interface CardCmsApi {
   gitRevert: (hash: string) => Promise<GitStatus>
   openGitHub: () => Promise<void>
   exportExcel: (cardIds?: string[]) => Promise<{ path: string; count: number } | null>
+  linkNativeSet: (setId: string, file: string, index: number) => Promise<ProjectSnapshot>
 }
 
 declare global {
