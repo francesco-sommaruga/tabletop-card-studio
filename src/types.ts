@@ -27,6 +27,7 @@ export interface ConditionalValueRule {
 export interface ColumnDefinition {
   id: string
   header: string
+  fieldLabel?: string
   fieldId: string
   type?: 'text' | 'number' | 'select' | 'image' | 'longtext' | 'variable' | 'color'
   defaultValue?: string
