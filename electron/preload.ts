@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Card, ColumnDefinition, GitStatus, ImportPlan, ProjectSnapshot, ProjectAsset, ProjectSummary, ProjectVariable, WorkbookInfo, WorkbookMergePreview } from '../src/types'
+import type { Card, ColumnDefinition, GitStatus, ImportPlan, ProjectSnapshot, ProjectAsset, ProjectIconReference, ProjectSummary, ProjectVariable, WorkbookInfo, WorkbookMergePreview } from '../src/types'
 
 contextBridge.exposeInMainWorld('cardCms', {
   openProject: () => ipcRenderer.invoke('project:open') as Promise<ProjectSnapshot | null>,
@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('cardCms', {
   saveColumns: (columns: ColumnDefinition[]) => ipcRenderer.invoke('columns:save', columns) as Promise<void>,
   saveVariables: (variables: ProjectVariable[]) => ipcRenderer.invoke('variables:save', variables) as Promise<ProjectSnapshot>,
   resolveIcon: (reference: string) => ipcRenderer.invoke('icons:resolve', reference) as Promise<string | null>,
+  searchIcons: (query: string, library: 'all' | 'tabletop' | 'project') => ipcRenderer.invoke('icons:search', query, library) as Promise<{ items: ProjectIconReference[]; total: number }>,
   selectSet: (id: string) => ipcRenderer.invoke('sets:select', id) as Promise<ProjectSnapshot>,
   renameSet: (id: string, name: string) => ipcRenderer.invoke('sets:rename', id, name) as Promise<ProjectSnapshot>,
   deleteSet: (id: string) => ipcRenderer.invoke('sets:delete', id) as Promise<ProjectSnapshot>,

@@ -4,7 +4,7 @@ import path from 'node:path'
 import fs from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
 import ExcelJS from 'exceljs'
-import type { Card, ColumnDefinition, GitCommitSummary, GitFileStatus, GitStatus, ImportPlan, MergeFieldChange, MergeFieldConflict, ProjectAsset, ProjectSet, ProjectSnapshot, ProjectSummary, ProjectVariable, TabletopBlueprint, WorkbookInfo, WorkbookMergePreview } from '../src/types'
+import type { Card, ColumnDefinition, GitCommitSummary, GitFileStatus, GitStatus, ImportPlan, MergeFieldChange, MergeFieldConflict, ProjectAsset, ProjectIconReference, ProjectSet, ProjectSnapshot, ProjectSummary, ProjectVariable, TabletopBlueprint, WorkbookInfo, WorkbookMergePreview } from '../src/types'
 import { resolveConditionalValues } from '../src/conditional'
 
 let win: BrowserWindow | null = null
@@ -16,6 +16,7 @@ let workbooks: WorkbookInfo[] = []
 let assets: ProjectAsset[] = []
 let variables: ProjectVariable[] = []
 let blueprints: TabletopBlueprint[] = []
+let iconCatalogCache: { projectPath: string; roots: string; icons: ProjectIconReference[] } | null = null
 const pendingMerges = new Map<string, { setId: string; matchFieldId: string; incoming: Card[]; selectedFieldIds: string[]; baselineFieldIds: string[]; restoreColumns: ColumnDefinition[] }>()
 const dataDirName = '.tabletop-card-studio'
 const defaultColumns: ColumnDefinition[] = [
@@ -429,6 +430,44 @@ function tabletopBuiltInIconRoots(): string[] {
   return [...new Set(roots)].filter((root) => existsSync(root))
 }
 
+async function collectIcons(root: string, library: ProjectIconReference['library']): Promise<ProjectIconReference[]> {
+  const result: ProjectIconReference[] = []
+  const supported = new Set(['.png', '.svg', '.webp', '.jpg', '.jpeg'])
+  const visit = async (directory: string) => {
+    let entries
+    try { entries = await fs.readdir(directory, { withFileTypes: true }) } catch { return }
+    for (const entry of entries) {
+      const file = path.join(directory, entry.name)
+      if (entry.isDirectory()) await visit(file)
+      else if (entry.isFile() && supported.has(path.extname(entry.name).toLowerCase())) {
+        const relative = path.relative(root, file).split(path.sep).join('/')
+        const extension = path.extname(relative)
+        const name = path.basename(relative, extension)
+        const reference = library === 'tabletop' ? relative.slice(0, -extension.length) : relative
+        result.push({ reference, name, category: path.posix.dirname(relative) === '.' ? '' : path.posix.dirname(relative), library })
+      }
+    }
+  }
+  await visit(root)
+  return result
+}
+
+async function searchAvailableIcons(query: string, library: 'all' | 'tabletop' | 'project') {
+  if (!activeProject) return { items: [] as ProjectIconReference[], total: 0 }
+  const roots = [...tabletopBuiltInIconRoots()]
+  const rootKey = roots.join('|')
+  if (!iconCatalogCache || iconCatalogCache.projectPath !== activeProject || iconCatalogCache.roots !== rootKey) {
+    const projectIcons = await collectIcons(path.join(activeProject, 'assets', 'icons'), 'project')
+    const builtInIcons = (await Promise.all(roots.map((root) => collectIcons(root, 'tabletop')))).flat()
+    const deduplicated = new Map<string, ProjectIconReference>()
+    for (const item of [...projectIcons, ...builtInIcons]) deduplicated.set(`${item.library}:${item.reference.toLocaleLowerCase()}`, item)
+    iconCatalogCache = { projectPath: activeProject, roots: rootKey, icons: [...deduplicated.values()].sort((a, b) => a.reference.localeCompare(b.reference, 'en', { numeric: true, sensitivity: 'base' })) }
+  }
+  const term = query.trim().toLocaleLowerCase()
+  const matching = iconCatalogCache.icons.filter((icon) => (library === 'all' || icon.library === library) && (!term || `${icon.reference} ${icon.name} ${icon.category}`.toLocaleLowerCase().includes(term)))
+  return { items: matching.slice(0, 120), total: matching.length }
+}
+
 async function resolveProjectIcon(reference: string): Promise<string | null> {
   const normalized = reference.trim().replace(/\\/g, '/').replace(/^\{\s*|\s*\}$/g, '')
   if (!normalized || normalized.split('/').some((part) => part === '..')) return null
@@ -760,6 +799,7 @@ app.whenReady().then(() => {
     return assets
   })
   ipcMain.handle('icons:resolve', (_event, reference: string) => resolveProjectIcon(reference))
+  ipcMain.handle('icons:search', (_event, query: string, library: 'all' | 'tabletop' | 'project') => searchAvailableIcons(query, library))
   ipcMain.handle('project:export', async (_event, cardIds?: string[]) => {
     const current = activeSet()
     if (!activeProject || !current) return null

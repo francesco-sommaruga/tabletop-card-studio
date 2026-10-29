@@ -59,6 +59,13 @@ export interface ProjectAsset {
   previewUrl: string
 }
 
+export interface ProjectIconReference {
+  reference: string
+  name: string
+  category: string
+  library: 'tabletop' | 'project'
+}
+
 export interface ProjectVariable {
   code: string
   replacement: string
@@ -192,6 +199,7 @@ export interface CardCmsApi {
   saveColumns: (columns: ColumnDefinition[]) => Promise<void>
   saveVariables: (variables: ProjectVariable[]) => Promise<ProjectSnapshot>
   resolveIcon: (reference: string) => Promise<string | null>
+  searchIcons: (query: string, library: 'all' | 'tabletop' | 'project') => Promise<{ items: ProjectIconReference[]; total: number }>
   selectSet: (id: string) => Promise<ProjectSnapshot>
   renameSet: (id: string, name: string) => Promise<ProjectSnapshot>
   deleteSet: (id: string) => Promise<ProjectSnapshot>
