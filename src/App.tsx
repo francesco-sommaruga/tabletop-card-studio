@@ -13,6 +13,7 @@ const tableMetaColumns = [
   { fieldId: 'meta_updated', header: 'Ultima modifica', label: 'Ultima modifica', className: 'col-updated', type: 'text' },
 ]
 const defaultTableColumnIds = tableMetaColumns.map((column) => column.fieldId)
+const tableMetaFieldIds = new Set(defaultTableColumnIds)
 const metaFields = [
   { id: 'meta_title', label: 'Titolo carta' },
   { id: 'meta_quantity', label: 'Quantità' },
@@ -117,7 +118,7 @@ function App() {
   const listColumns = columns.filter((column, index, all) => column.type !== 'image' && all.findIndex((item) => item.fieldId === column.fieldId) === index)
   const availableTableColumns = [
     ...tableMetaColumns,
-    ...columns.filter((column, index, all) => all.findIndex((item) => item.fieldId === column.fieldId) === index).map((column) => ({ fieldId: column.fieldId, header: column.header, label: column.header, className: 'col-custom', type: column.type ?? 'text', definition: column })),
+    ...columns.filter((column, index, all) => !tableMetaFieldIds.has(column.fieldId) && all.findIndex((item) => item.fieldId === column.fieldId) === index).map((column) => ({ fieldId: column.fieldId, header: column.header, label: column.header, className: 'col-custom', type: column.type ?? 'text', definition: column })),
   ]
   const visibleTableColumnIds = tableColumnPrefs?.key === tableColumnKey ? tableColumnPrefs.ids : defaultTableColumnIds
   const visibleTableColumns = availableTableColumns.filter((column) => visibleTableColumnIds.includes(column.fieldId))
