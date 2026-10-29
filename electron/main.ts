@@ -611,7 +611,7 @@ function nativeItemFromCard(card: Card, columns: ColumnDefinition[]): Record<str
     const data = detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data) ? detail.data as Record<string, unknown> : (detail.data = {}) as Record<string, unknown>
     const value = cardFieldValue(card, column.fieldId)
     const current = data[property]
-    let nextValue: unknown = value
+    let nextValue: unknown = column.type === 'image' && value ? tabletopAssetReference(value) : value
     if (typeof current === 'number' && value.trim() && Number.isFinite(Number(value))) nextValue = Number(value)
     else if (typeof current === 'boolean') nextValue = ['true', '1', 'yes'].includes(value.toLocaleLowerCase())
     if (JSON.stringify(current) !== JSON.stringify(nextValue)) nativeChanged = true
