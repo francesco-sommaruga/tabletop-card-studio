@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('cardCms', {
   resolveIcon: (reference: string) => ipcRenderer.invoke('icons:resolve', reference) as Promise<string | null>,
   selectSet: (id: string) => ipcRenderer.invoke('sets:select', id) as Promise<ProjectSnapshot>,
   renameSet: (id: string, name: string) => ipcRenderer.invoke('sets:rename', id, name) as Promise<ProjectSnapshot>,
+  deleteSet: (id: string) => ipcRenderer.invoke('sets:delete', id) as Promise<ProjectSnapshot>,
   importWorkbooks: (plans: ImportPlan[]) => ipcRenderer.invoke('workbooks:import', plans) as Promise<ProjectSnapshot>,
   previewWorkbookMerge: (file: string, setId: string, matchFieldId?: string, fieldIds?: string[], restoreFieldIds?: string[]) => ipcRenderer.invoke('workbooks:merge-preview', file, setId, matchFieldId, fieldIds, restoreFieldIds) as Promise<WorkbookMergePreview>,
   applyWorkbookMerge: (token: string, resolutions: Record<string, 'excel' | 'set'>) => ipcRenderer.invoke('workbooks:merge-apply', token, resolutions) as Promise<ProjectSnapshot>,
@@ -24,6 +25,7 @@ contextBridge.exposeInMainWorld('cardCms', {
   gitCommit: (message: string) => ipcRenderer.invoke('git:commit', message) as Promise<GitStatus>,
   gitPull: () => ipcRenderer.invoke('git:pull') as Promise<GitStatus>,
   gitPush: () => ipcRenderer.invoke('git:push') as Promise<GitStatus>,
+  gitRevert: (hash: string) => ipcRenderer.invoke('git:revert', hash) as Promise<GitStatus>,
   openGitHub: () => ipcRenderer.invoke('github:open') as Promise<void>,
   exportExcel: (cardIds?: string[]) => ipcRenderer.invoke('project:export', cardIds) as Promise<{ path: string; count: number } | null>,
 })

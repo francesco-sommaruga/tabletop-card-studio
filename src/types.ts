@@ -172,6 +172,7 @@ export interface CardCmsApi {
   resolveIcon: (reference: string) => Promise<string | null>
   selectSet: (id: string) => Promise<ProjectSnapshot>
   renameSet: (id: string, name: string) => Promise<ProjectSnapshot>
+  deleteSet: (id: string) => Promise<ProjectSnapshot>
   importWorkbooks: (plans: ImportPlan[]) => Promise<ProjectSnapshot>
   previewWorkbookMerge: (file: string, setId: string, matchFieldId?: string, fieldIds?: string[], restoreFieldIds?: string[]) => Promise<WorkbookMergePreview>
   applyWorkbookMerge: (token: string, resolutions: Record<string, 'excel' | 'set'>) => Promise<ProjectSnapshot>
@@ -184,6 +185,7 @@ export interface CardCmsApi {
   gitCommit: (message: string) => Promise<GitStatus>
   gitPull: () => Promise<GitStatus>
   gitPush: () => Promise<GitStatus>
+  gitRevert: (hash: string) => Promise<GitStatus>
   openGitHub: () => Promise<void>
   exportExcel: (cardIds?: string[]) => Promise<{ path: string; count: number } | null>
 }

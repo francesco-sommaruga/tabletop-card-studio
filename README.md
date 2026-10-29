@@ -58,6 +58,7 @@ I pacchetti vengono generati in `dist/`.
 - Apri più progetti Tabletop Creator e scegli quale usare all’avvio.
 - Importa più file Excel: ogni file diventa un set indipendente. Durante l’importazione scegli i campi da mantenere.
 - Rinomina i set dalla sidebar per riconoscerli rapidamente nei progetti con più fogli.
+- Elimina i set dalla sidebar dopo una conferma; i file Excel originali restano nella cartella del progetto.
 - Reimporta un foglio già collegato a un set: scegli i campi da importare e ripristina le colonne presenti nel foglio ma rimosse dal set, abbina le carte tramite una colonna, applica gli aggiornamenti Excel non in conflitto e scegli per campo nei conflitti; le carte assenti dal foglio restano nel set.
 - Crea campi di testo, testo lungo, numero, select, colore (anche con alpha esadecimale `#RRGGBBAA`), immagine e variabile; riordina le colonne e salva le modifiche prima di applicarle.
 - Imposta un valore predefinito per ogni campo; con regole condizionali viene usato quando nessuna regola corrisponde. Senza default il campo resta vuoto.
@@ -67,7 +68,7 @@ I pacchetti vengono generati in `dist/`.
 - Crea e modifica le variabili di `data/variables.json`, assegnagli tag o i tipi Card Studio **Colore salvato** e **Icona**. Le icone Tabletop Creator e quelle in `assets/icons/` vengono mostrate in anteprima nei campi testo e variabile. I campi variabile restano modificabili, salvo quando hanno regole condizionali.
 - Gestisci gli asset del progetto e usa le variabili di Tabletop Creator nei campi testuali.
 - Esporta il set intero oppure la vista filtrata corrente (ricerca, stato, tag, campi e ordinamento) in `exports/`, con nome del set e data/ora nel nome del file e nei metadati del workbook.
-- Collega un repository GitHub e gestisci commit, pull e push con le credenziali Git del computer.
+- Collega un repository GitHub e gestisci commit, pull e push con le credenziali Git del computer; annulla commit recenti creando un nuovo commit che mantiene intatta la cronologia.
 
 Per creare un valore automatico, apri **Campi e colonne**, espandi **Regole automatiche e visibilità** sul campo da compilare e aggiungi una regola. Per `play_area_1_icon:color`, imposta la sorgente su `play_area_1_icon`, la condizione su **è compilato** e il valore da assegnare, ad esempio `#D84A38`. Per associare colori diversi a valori diversi, aggiungi più regole: si applica la prima corrispondenza. Attiva **Nascondi nell’editor carte** per tenere il campo fuori dalla scheda; resterà presente nel foglio esportato.
 

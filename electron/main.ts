@@ -558,7 +558,7 @@ async function readGitStatus(): Promise<GitStatus> {
       runGit(['branch', '--show-current']).catch(() => ({ stdout: '(detached HEAD)', stderr: '' })),
       runGit(['status', '--porcelain=v1']),
       runGit(['remote', 'get-url', 'origin']).catch(() => ({ stdout: '', stderr: '' })),
-      runGit(['log', '-5', '--format=%h%x09%s%x09%cr']).catch(() => ({ stdout: '', stderr: '' })),
+      runGit(['log', '-5', '--no-merges', '--format=%h%x09%s%x09%cr']).catch(() => ({ stdout: '', stderr: '' })),
     ])
     const changedFiles: GitFileStatus[] = statusResult.stdout.split('\n').filter(Boolean).map((line) => ({ status: line.slice(0, 2).trim() || 'M', path: line.slice(3) }))
     let ahead = 0
@@ -629,6 +629,19 @@ app.whenReady().then(() => {
     if (!branch) throw new Error('Seleziona un branch prima di inviare le modifiche.')
     await runGit(['push', '--set-upstream', 'origin', branch])
   }))
+  ipcMain.handle('git:revert', (_event, hash: string) => gitAction(async () => {
+    if (!/^[a-f\d]{7,40}$/i.test(hash)) throw new Error('Il riferimento del commit non è valido.')
+    const dirty = await runGit(['status', '--porcelain=v1'])
+    if (dirty.stdout) throw new Error('Prima registra o annulla le modifiche locali, poi riprova il ripristino.')
+    await runGit(['cat-file', '-e', `${hash}^{commit}`])
+    const parents = await runGit(['rev-list', '--parents', '-n', '1', hash])
+    if (parents.stdout.split(/\s+/).length > 2) throw new Error('I commit di merge non possono essere annullati da qui.')
+    try { await runGit(['revert', '--no-edit', hash]) }
+    catch (error) {
+      await runGit(['revert', '--abort']).catch(() => undefined)
+      throw error
+    }
+  }))
   ipcMain.handle('github:open', async () => {
     const status = await readGitStatus()
     if (status.githubUrl) await shell.openExternal(status.githubUrl)
@@ -677,6 +690,14 @@ app.whenReady().then(() => {
     if (!target) throw new Error('Il set selezionato non esiste più.')
     if (!trimmedName) throw new Error('Il nome del set non può essere vuoto.')
     target.name = trimmedName
+    await persistSets()
+    return snapshot()
+  })
+  ipcMain.handle('sets:delete', async (_event, id: string) => {
+    const targetIndex = sets.findIndex((set) => set.id === id)
+    if (targetIndex < 0) throw new Error('Il set selezionato non esiste più.')
+    sets.splice(targetIndex, 1)
+    if (activeSetId === id) activeSetId = sets[0]?.id ?? null
     await persistSets()
     return snapshot()
   })
