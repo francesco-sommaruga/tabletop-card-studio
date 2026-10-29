@@ -70,7 +70,7 @@ I pacchetti vengono generati in `dist/`.
 
 Per creare un valore automatico, apri **Campi e colonne**, espandi **Regole automatiche e visibilità** sul campo da compilare e aggiungi una regola. Per `play_area_1_icon:color`, imposta la sorgente su `play_area_1_icon`, la condizione su **è compilato** e il valore da assegnare, ad esempio `#D84A38`. Per associare colori diversi a valori diversi, aggiungi più regole: si applica la prima corrispondenza. Attiva **Nascondi nell’editor carte** per tenere il campo fuori dalla scheda; resterà presente nel foglio esportato.
 
-L’app salva i propri dati in `.tabletop-card-studio/` nella cartella del progetto aperto. Le immagini importate vengono copiate in `assets/card-studio/`; nei campi immagine e negli export viene usato il percorso relativo ad `assets` (per esempio `card-studio/nome.png`). I fogli Excel originali non vengono modificati; gli export sono raccolti in `exports/` e ogni file include il set e la data/ora di generazione nel nome.
+L’app salva i propri dati in `.tabletop-card-studio/` nella cartella del progetto aperto. Le immagini importate vengono copiate in `assets/images/card-studio/`; nei campi immagine e negli export viene mantenuto il riferimento Tabletop Creator `card-studio/nome.png`. I fogli Excel originali non vengono modificati; gli export sono raccolti in `exports/` e ogni file include il set e la data/ora di generazione nel nome.
 
 I tag e i tipi Card Studio delle variabili sono metadati separati salvati in `.tabletop-card-studio/variable-tags.json` e `variable-types.json`; le definizioni delle variabili continuano a essere salvate nel formato di Tabletop Creator in `data/variables.json`. I campi colore possono selezionare i colori salvati dalla palette del progetto.
 
