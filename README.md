@@ -66,7 +66,7 @@ I pacchetti vengono generati in `dist/`.
 - Assegna tag e stato alle carte, cerca e filtra per campi e ordina l’archivio.
 - Apri un’anteprima ricostruita dai blueprint del progetto, con selezione del blueprint e vista fronte/retro.
 - Consulta statistiche per tag e proprietà, anche incrociando due campi e contando carte uniche o copie.
-- Crea e modifica le variabili di `data/variables.json`, assegnagli tag o i tipi Card Studio **Colore salvato** e **Icona**. Le icone Tabletop Creator e quelle in `assets/icons/` vengono mostrate in anteprima nei campi testo e variabile. I campi variabile restano modificabili, salvo quando hanno regole condizionali.
+- Crea e modifica le variabili di `data/variables.json`, assegnagli tag o i tipi Card Studio **Colore salvato** e **Icona**. Le icone Tabletop Creator e quelle in `assets/icons/` vengono mostrate inline nei campi testo e nell’anteprima della carta; il picker **Aggiungi icona** elenca le variabili di tipo icona. I campi variabile restano modificabili, salvo quando hanno regole condizionali.
 - Gestisci gli asset del progetto e usa le variabili di Tabletop Creator nei campi testuali.
 - Esporta il set intero oppure la vista filtrata corrente (ricerca, stato, tag, campi e ordinamento) in `exports/`, con nome del set e data/ora nel nome del file e nei metadati del workbook.
 - Collega un repository GitHub e gestisci commit, pull e push con le credenziali Git del computer; annulla commit recenti creando un nuovo commit che mantiene intatta la cronologia.
