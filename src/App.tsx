@@ -521,7 +521,7 @@ function BlueprintTextPanelContent({ value, variables, projectPath }: { value: s
   const iconToken = [...value.matchAll(/\{\s*([^{}]+?)\s*\}/g)].some(([, code]) => variables.some((variable) => variable.studioType === 'icon' && variable.code.toLocaleLowerCase() === code.toLocaleLowerCase()))
   return iconToken
     ? <VariableTextPreview value={value} variables={variables} projectPath={projectPath} className="blueprint-variable-inline" inline/>
-    : <span dangerouslySetInnerHTML={{ __html: renderBlueprintText(value, variables) }}/>
+    : <span className="blueprint-rich-text" dangerouslySetInnerHTML={{ __html: renderBlueprintText(value, variables) }}/>
 }
 
 function BlueprintPanelPreview({ panel, card, columns, assets, variables, projectPath, canvasWidth, canvasHeight }: { panel: TabletopBlueprintPanel; card: Card; columns: ColumnDefinition[]; assets: ProjectAsset[]; variables: ProjectVariable[]; projectPath: string; canvasWidth: number; canvasHeight: number }) {
@@ -541,11 +541,15 @@ function BlueprintPanelPreview({ panel, card, columns, assets, variables, projec
   const topLeft = corner('tl'), topRight = corner('tr'), bottomRight = corner('br'), bottomLeft = corner('bl')
   const mediaRadius = `${Number.parseFloat(data.img_mask_radius_tl ?? '0') || 0}px ${Number.parseFloat(data.img_mask_radius_tr ?? '0') || 0}px ${Number.parseFloat(data.img_mask_radius_br ?? '0') || 0}px ${Number.parseFloat(data.img_mask_radius_bl ?? '0') || 0}px`
   const proceduralPath = `M ${x + topLeft} ${top} L ${x + width - topRight} ${top} Q ${x + width} ${top} ${x + width} ${top + topRight} L ${x + width} ${top + height - bottomRight} Q ${x + width} ${top + height} ${x + width - bottomRight} ${top + height} L ${x + bottomLeft} ${top + height} Q ${x} ${top + height} ${x} ${top + height - bottomLeft} L ${x} ${top + topLeft} Q ${x} ${top} ${x + topLeft} ${top} Z`
-  const proceduralFill = backgroundColor !== 'transparent' ? backgroundColor : borderWidth > 0 ? 'transparent' : color
+  const proceduralFill = borderWidth > 0 ? 'transparent' : color
   const panelType = data.panel_type ?? 'text'
   const rotationTransform = rotation ? `rotate(${rotation}, ${x + width / 2}, ${top + height / 2})` : undefined
   const style = { overflow: 'hidden' as const, boxSizing: 'border-box' as const }
-  if (panelType === 'text') return <foreignObject x={x} y={top} width={width} height={height} transform={rotationTransform}><div className={`blueprint-text-panel align-${data.text_alignment_h ?? 'left'} valign-${data.text_alignment_v ?? 'center'}`} style={{ ...style, color, fontFamily, fontSize, fontWeight: data.text_bold?.toLowerCase() === 'true' ? 'bold' : 'normal', textAlign: data.text_alignment_h === 'center' ? 'center' : data.text_alignment_h === 'right' ? 'right' : 'left', WebkitLineClamp: data.text_autosize?.toLowerCase() === 'true' ? 8 : undefined }}><BlueprintTextPanelContent value={panelValue} variables={variables} projectPath={projectPath}/></div></foreignObject>
+  if (panelType === 'text') {
+    const horizontal = normalizeBlueprintHorizontalAlignment(data.text_alignment_h)
+    const vertical = normalizeBlueprintVerticalAlignment(data.text_alignment_v)
+    return <foreignObject x={x} y={top} width={width} height={height} transform={rotationTransform}><div className={`blueprint-text-panel align-${horizontal} valign-${vertical}`} style={{ ...style, color, fontFamily, fontSize, fontWeight: data.text_bold?.toLowerCase() === 'true' ? 'bold' : 'normal', textAlign: horizontal === 'justify' ? 'justify' : horizontal, WebkitLineClamp: data.text_autosize?.toLowerCase() === 'true' ? 8 : undefined }}><BlueprintTextPanelContent value={panelValue} variables={variables} projectPath={projectPath}/></div></foreignObject>
+  }
   if (panelType === 'procedural') return <g transform={rotationTransform}><path d={proceduralPath} fill={proceduralFill} stroke={borderWidth > 0 ? color : 'none'} strokeWidth={borderWidth} strokeLinejoin="round"/></g>
   if (panelType === 'image' || panelType === 'icon') {
     const { reference, variable } = resolvePreviewReference(panelValue, variables)
@@ -572,6 +576,17 @@ function parseBlueprintVector(value: string | undefined, fallback: [number, numb
   if (!value) return fallback
   const values = value.split(',').map((item) => Number.parseFloat(item.trim()))
   return values.length >= 2 && values.every(Number.isFinite) ? [values[0], values[1]] : fallback
+}
+function normalizeBlueprintHorizontalAlignment(value: string | undefined): 'left' | 'center' | 'right' | 'justify' {
+  const normalized = value?.trim().toLocaleLowerCase().replace(/[ -]/g, '_')
+  if (['left', 'center', 'right'].includes(normalized ?? '')) return normalized as 'left' | 'center' | 'right'
+  if (['justify', 'justified', 'fill'].includes(normalized ?? '')) return 'justify'
+  return 'center'
+}
+function normalizeBlueprintVerticalAlignment(value: string | undefined): 'top' | 'center' | 'bottom' {
+  const normalized = value?.trim().toLocaleLowerCase()
+  if (['top', 'center', 'bottom'].includes(normalized ?? '')) return normalized as 'top' | 'center' | 'bottom'
+  return 'center'
 }
 function cardPanelValue(card: Card, columns: ColumnDefinition[], name: string, property: string) {
   const suffix = property === 'value' ? '' : `_${property}`
@@ -619,7 +634,7 @@ function IconVariableInsert({ variables, projectPath, onInsert }: { variables: P
   const [open, setOpen] = useState(false)
   const icons = variables.filter((variable) => variable.studioType === 'icon')
   if (!icons.length) return null
-  return <div className="icon-variable-insert"><button type="button" className="icon-variable-trigger" aria-expanded={open} onClick={() => setOpen((value) => !value)}><ImagePlus size={13}/>Aggiungi icona</button>{open && <div className="icon-variable-popover" role="dialog" aria-label="Scegli una variabile icona"><div className="icon-variable-popover-head"><span>VARIABILI ICONE</span><button type="button" aria-label="Chiudi selezione icone" onClick={() => setOpen(false)}><X size={13}/></button></div><div className="icon-variable-options">{icons.map((variable) => <button type="button" className="icon-variable-option" key={variable.code} onClick={() => { onInsert(`{${variable.code}}`); setOpen(false) }}><IconPreview reference={variable.replacement} projectPath={projectPath} className="icon-variable-option-preview"/><span><strong>{variable.code}</strong><small>{variable.replacement}</small></span></button>)}</div></div>}</div>
+  return <div className="icon-variable-insert"><button type="button" className="icon-variable-trigger" aria-expanded={open} onClick={() => setOpen((value) => !value)}><ImagePlus size={13}/>Aggiungi icona</button>{open && <div className="icon-variable-popover" role="dialog" aria-label="Scegli una variabile icona"><div className="icon-variable-popover-head"><span>VARIABILI ICONE</span><button type="button" aria-label="Chiudi selezione icone" onClick={() => setOpen(false)}><X size={13}/></button></div><div className="icon-variable-options">{icons.map((variable) => <button type="button" className="icon-variable-option" key={variable.code} onClick={() => { onInsert(`{${variable.code}}`); setOpen(false) }}><IconPreview reference={variable.replacement} projectPath={projectPath} className="icon-variable-option-preview" tint="#51483D"/><span><strong>{variable.code}</strong><small>{variable.replacement}</small></span></button>)}</div></div>}</div>
 }
 
 function ImageField({ assets, value, onChange, fieldName }: { assets: ProjectAsset[]; value: string; onChange: (value: string) => void; fieldName: string }) {
@@ -650,11 +665,14 @@ function VariableTagPicker({ tags, selected, onChange, className = '' }: { tags:
 }
 
 function VariableField({ variables, tags, value, projectPath, hasRules = false, onChange }: { variables: ProjectVariable[]; tags: string[]; value: string; projectPath: string; hasRules?: boolean; onChange?: (value: string) => void }) {
+  const [open, setOpen] = useState(false)
   const available = tags.length ? variables.filter((variable) => (variable.studioTags ?? []).some((tag) => tags.some((chosen) => chosen.toLocaleLowerCase() === tag.toLocaleLowerCase()))) : variables
   const storedCode = value.match(/^\{\s*(.*?)\s*\}$/)?.[1] ?? value
   const current = variables.find((variable) => variable.code.toLocaleLowerCase() === storedCode.toLocaleLowerCase())
   const currentAvailable = current && available.some((variable) => variable.code.toLocaleLowerCase() === current.code.toLocaleLowerCase())
-  return <div className="variable-field">{hasRules ? <div className="variable-field-readonly"><span className="variable-field-token">{current ? `{${current.code}}` : value || 'Nessuna regola attiva'}</span>{current?.replacement && <small>{current.replacement}</small>}</div> : <div className="variable-field-select"><select aria-label="Variabile assegnata" value={current?.code ?? (current ? '' : storedCode)} onChange={(event) => onChange?.(event.target.value ? `{${event.target.value}}` : '')}><option value="">Seleziona una variabile…</option>{!current && storedCode && <option value={storedCode}>{storedCode} · non trovata nel progetto</option>}{current && !currentAvailable && <option value={current.code}>{`{${current.code}}`} · fuori dai tag scelti</option>}{available.map((variable) => <option key={variable.code} value={variable.code}>{`{${variable.code}}`} · {variable.replacement}</option>)}</select><ChevronDown size={14}/></div>}{current?.studioType === 'icon' && <div className="variable-field-icon"><IconPreview reference={current.replacement} projectPath={projectPath}/><span>{current.replacement}</span></div>}<small>{hasRules ? `Calcolata automaticamente${tags.length ? ` · tag: ${tags.join(', ')}` : ''}` : tags.length ? `Scegli una variabile con tag: ${tags.join(', ')}` : 'Scegli una variabile dal progetto.'}</small>{current && !currentAvailable && <small className="variable-field-empty">La variabile attuale non rientra nei tag scelti.</small>}</div>
+  const choose = (code: string) => { onChange?.(code ? `{${code}}` : ''); setOpen(false) }
+  const selectedLabel = current?.studioType === 'icon' ? 'Icona selezionata' : current ? `{${current.code}} · ${current.replacement}` : storedCode ? `${storedCode} · variabile non trovata` : 'Seleziona una variabile…'
+  return <div className="variable-field">{hasRules ? <div className="variable-field-readonly" title={current?.studioType === 'icon' ? current.code : undefined}>{current?.studioType === 'icon' ? <IconPreview reference={current.replacement} projectPath={projectPath} className="variable-selected-icon" tint="#51483D"/> : <span className="variable-field-token">{current ? `{${current.code}}` : value || 'Nessuna regola attiva'}</span>}{current?.studioType !== 'icon' && current?.replacement && <small>{current.replacement}</small>}</div> : <div className="variable-field-select"><button type="button" className="variable-field-trigger" title={current?.code} aria-label="Variabile assegnata" aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((isOpen) => !isOpen)}>{current?.studioType === 'icon' && <IconPreview reference={current.replacement} projectPath={projectPath} className="variable-selected-icon" tint="#51483D"/>}<span>{selectedLabel}</span><ChevronDown size={14}/></button>{open && <div className="variable-field-options" role="listbox" aria-label="Variabili disponibili"><button type="button" role="option" aria-selected={!current && !storedCode} onClick={() => choose('')}>Nessuna variabile</button>{!current && storedCode && <button type="button" role="option" aria-selected="true" onClick={() => choose(storedCode)}>{storedCode} · non trovata nel progetto</button>}{current && !currentAvailable && <button type="button" role="option" aria-selected="true" onClick={() => choose(current.code)}>{current.studioType === 'icon' && <IconPreview reference={current.replacement} projectPath={projectPath} className="variable-selected-icon" tint="#51483D"/>}{current.studioType === 'icon' ? current.code : `{${current.code}} · fuori dai tag scelti`}</button>}{available.map((variable) => <button type="button" role="option" aria-selected={current?.code === variable.code} key={variable.code} onClick={() => choose(variable.code)}>{variable.studioType === 'icon' && <IconPreview reference={variable.replacement} projectPath={projectPath} className="variable-selected-icon" tint="#51483D"/>}<span>{variable.studioType === 'icon' ? variable.code : `{${variable.code}} · ${variable.replacement}`}</span></button>)}</div>}</div>}<small>{hasRules ? `Calcolata automaticamente${tags.length ? ` · tag: ${tags.join(', ')}` : ''}` : tags.length ? `Scegli una variabile con tag: ${tags.join(', ')}` : 'Scegli una variabile dal progetto.'}</small>{current && !currentAvailable && <small className="variable-field-empty">La variabile attuale non rientra nei tag scelti.</small>}</div>
 }
 
 function VariablesPage({ variables, projectPath, onSave, onDirty }: { variables: ProjectVariable[]; projectPath: string; onSave: (variables: ProjectVariable[]) => Promise<void>; onDirty: (dirty: boolean) => void }) {
