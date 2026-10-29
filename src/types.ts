@@ -29,6 +29,7 @@ export interface ColumnDefinition {
   header: string
   fieldId: string
   type?: 'text' | 'number' | 'select' | 'image' | 'longtext' | 'variable' | 'color'
+  defaultValue?: string
   options?: string[]
   variableTags?: string[]
   hidden?: boolean
