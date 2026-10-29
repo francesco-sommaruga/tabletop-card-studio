@@ -46,7 +46,7 @@ function snapshot(): ProjectSnapshot {
     projectName,
     cards: current?.cards ?? [],
     columns: current?.columns ?? [],
-    sets: sets.map(({ id, name, sourceFile, nativeSetFile, nativeSetIndex, cards }) => ({ id, name, sourceFile, nativeSetFile, nativeSetIndex, cardCount: cards.length })),
+    sets: sets.map(({ id, name, sourceFile, nativeSetFile, nativeSetIndex, blueprintName, cards }) => ({ id, name, sourceFile, nativeSetFile, nativeSetIndex, blueprintName, cardCount: cards.length })),
     activeSetId,
     workbooks,
     assets,
@@ -374,6 +374,7 @@ async function applyWorkbookMerge(token: string, resolutions: Record<string, 'ex
   set.cards = set.cards.map((card) => resolveConditionalValues(set.columns, card))
   set.importBaseline = [...baselineByCardId].map(([cardId, values]) => ({ cardId, values }))
   set.importMatchFieldId = pending.matchFieldId
+  if (set.blueprintName) synchronizeBlueprintFields(set.blueprintName, set.columns)
   activeSetId = set.id
   pendingMerges.delete(token)
   await persistSets()
@@ -572,6 +573,53 @@ function nativeValue(detailMap: Map<string, Record<string, unknown>>, header: st
   return (detailMap.get(name) ?? {})[property]
 }
 
+function mergeColumnDefinitions(...sources: ColumnDefinition[][]): ColumnDefinition[] {
+  const merged = new Map<string, ColumnDefinition>()
+  for (const source of sources) for (const column of source) {
+    if (!merged.has(column.fieldId)) merged.set(column.fieldId, structuredClone(column))
+  }
+  return [...merged.values()]
+}
+
+function hydrateNativeValues(card: Card, columns: ColumnDefinition[]): Card {
+  if (!card.nativeItem) return card
+  const item = card.nativeItem as Record<string, unknown>
+  const details = new Map<string, Record<string, unknown>>()
+  for (const detail of Array.isArray(item.details) ? item.details : []) {
+    if (!detail || typeof detail !== 'object') continue
+    const record = detail as { name?: unknown; data?: unknown }
+    if (typeof record.name === 'string' && record.data && typeof record.data === 'object') details.set(record.name, record.data as Record<string, unknown>)
+  }
+  const values = { ...card.values }
+  for (const column of columns) {
+    if (column.fieldId === 'meta_title' || column.fieldId === 'meta_quantity' || Object.prototype.hasOwnProperty.call(values, column.fieldId)) continue
+    const value = nativeValue(details, column.header)
+    if (value !== null && value !== undefined) values[column.fieldId] = String(value)
+  }
+  return { ...card, values }
+}
+
+function synchronizeBlueprintFields(blueprintName: string, preferredColumns?: ColumnDefinition[]): ColumnDefinition[] {
+  const groupedSets = sets.filter((set) => set.blueprintName === blueprintName)
+  const columns = mergeColumnDefinitions(...(preferredColumns ? [preferredColumns] : []), ...groupedSets.map((set) => set.columns))
+  for (const set of groupedSets) {
+    set.columns = structuredClone(columns)
+    set.cards = set.cards.map((card) => hydrateNativeValues(card, columns))
+  }
+  return columns
+}
+
+function normalizeBlueprintFieldSets(): boolean {
+  const before = JSON.stringify(sets)
+  for (const set of sets) {
+    if (!set.nativeSetFile || set.nativeSetIndex === undefined) continue
+    const nativeSet = nativeSets.find((item) => item.file === path.basename(set.nativeSetFile!) && item.index === set.nativeSetIndex)
+    if (nativeSet?.blueprintName) set.blueprintName = nativeSet.blueprintName
+  }
+  for (const name of new Set(sets.map((set) => set.blueprintName).filter((value): value is string => Boolean(value)))) synchronizeBlueprintFields(name)
+  return before !== JSON.stringify(sets)
+}
+
 function nativeCard(title: string, item: Record<string, unknown>, columns: ColumnDefinition[], existing?: Card): Card {
   const detailMap = new Map<string, Record<string, unknown>>()
   for (const detail of Array.isArray(item.details) ? item.details : []) {
@@ -702,6 +750,7 @@ async function openProject(folder: string): Promise<ProjectSnapshot> {
   blueprints = await loadBlueprints()
   nativeSets = await scanNativeSets()
   await fs.mkdir(storeDir, { recursive: true })
+  if (normalizeBlueprintFieldSets()) await persistSets(false)
   await persistProjectList()
   return snapshot()
 }
@@ -720,7 +769,9 @@ async function connectNativeSet(setId: string, file: string, index: number): Pro
   const nativeSet = document.sets?.[index]
   if (!nativeSet || !Array.isArray(nativeSet.items)) throw new Error('Il set selezionato non è più disponibile nel progetto.')
   const rawItems = (nativeSet.items as unknown[]).filter((item: unknown): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
-  const columns = columnsFromNativeItems(rawItems, target.columns)
+  const nativeBlueprintName = typeof nativeSet.blueprint_name === 'string' && nativeSet.blueprint_name ? nativeSet.blueprint_name : target.blueprintName
+  const blueprintPeers = nativeBlueprintName ? sets.filter((set) => set.id !== target.id && set.blueprintName === nativeBlueprintName) : []
+  const columns = mergeColumnDefinitions(...blueprintPeers.map((set) => set.columns), columnsFromNativeItems(rawItems, target.columns))
   const existingByTitle = new Map<string, Card[]>()
   for (const card of target.cards) {
     const key = card.title.trim().toLocaleLowerCase()
@@ -739,12 +790,14 @@ async function connectNativeSet(setId: string, file: string, index: number): Pro
   })
   target.cards = cards
   target.columns = columns
+  target.blueprintName = nativeBlueprintName
   target.nativeSetFile = safeFile
   target.nativeSetIndex = index
   target.nativeSetHash = sha256(raw)
   activeSetId = target.id
+  if (nativeBlueprintName) synchronizeBlueprintFields(nativeBlueprintName, columns)
   nativeSets = await scanNativeSets()
-  await persistSets(false)
+  await persistSets()
   return snapshot()
 }
 
@@ -756,6 +809,10 @@ async function createNativeSet(setId: string, name: string, blueprintName: strin
   if (!trimmedName) throw new Error('Inserisci un nome per il set Tabletop Creator.')
   if (!blueprints.some((blueprint) => blueprint.name === blueprintName)) throw new Error('Scegli un blueprint presente nel progetto Tabletop Creator.')
   if (nativeSets.some((nativeSet) => nativeSet.name.toLocaleLowerCase() === trimmedName.toLocaleLowerCase())) throw new Error(`Esiste già un set Tabletop Creator chiamato “${trimmedName}”.`)
+  const existingBlueprintColumns = sets.filter((set) => set.id !== target.id && set.blueprintName === blueprintName).map((set) => set.columns)
+  target.blueprintName = blueprintName
+  const sharedColumns = synchronizeBlueprintFields(blueprintName, mergeColumnDefinitions(...existingBlueprintColumns, target.columns))
+  target.columns = sharedColumns
   const nativeSet = {
     name: trimmedName,
     blueprint_name: blueprintName,
@@ -776,7 +833,7 @@ async function createNativeSet(setId: string, name: string, blueprintName: strin
   target.nativeSetIndex = 0
   target.nativeSetHash = sha256(serialized)
   nativeSets = await scanNativeSets()
-  await persistSets(false)
+  await persistSets()
   return snapshot()
 }
 
@@ -789,6 +846,31 @@ async function disconnectNativeSet(setId: string): Promise<ProjectSnapshot> {
   target.nativeSetHash = undefined
   target.cards = target.cards.map(({ nativeItem: _nativeItem, ...card }) => card)
   await persistSets(false)
+  return snapshot()
+}
+
+async function saveBlueprintAssignments(assignments: Record<string, string>): Promise<ProjectSnapshot> {
+  const previousBlueprints = new Map(sets.map((set) => [set.id, set.blueprintName]))
+  const updates = sets.map((set) => {
+    const requested = (assignments[set.id] ?? '').trim()
+    if (requested && !blueprints.some((blueprint) => blueprint.name === requested)) throw new Error(`Il blueprint “${requested}” non è disponibile nel progetto.`)
+    if (set.nativeSetFile) {
+      const nativeSet = nativeSets.find((item) => item.file === path.basename(set.nativeSetFile!) && item.index === set.nativeSetIndex)
+      const nativeBlueprint = nativeSet?.blueprintName ?? ''
+      if (requested && requested !== nativeBlueprint) throw new Error(`“${set.name}” è collegato a un set nativo che usa il blueprint “${nativeBlueprint || 'non assegnato'}”. Cambia prima il collegamento nativo.`)
+      return { set, blueprintName: nativeBlueprint || undefined }
+    }
+    return { set, blueprintName: requested || undefined }
+  })
+  for (const { set, blueprintName } of updates) set.blueprintName = blueprintName
+  for (const name of new Set(updates.map(({ blueprintName }) => blueprintName).filter((value): value is string => Boolean(value)))) {
+    const established = sets.filter((set) => set.blueprintName === name && previousBlueprints.get(set.id) === name)
+    const joining = sets.filter((set) => set.blueprintName === name && previousBlueprints.get(set.id) !== name)
+    const seedColumns = mergeColumnDefinitions(...established.map((set) => set.columns), ...joining.map((set) => set.columns))
+    const columns = synchronizeBlueprintFields(name, seedColumns)
+    for (const set of sets.filter((item) => item.blueprintName === name)) set.cards = set.cards.map((card) => resolveConditionalValues(columns, card))
+  }
+  await persistSets()
   return snapshot()
 }
 
@@ -860,6 +942,7 @@ async function moveCardBetweenSets(cardId: string, targetSetId: string, draft?: 
     const current = await fs.readFile(path.join(activeProject, 'data', 'sets', file))
     if (sha256(current) !== set.nativeSetHash) throw new Error(`Il set nativo ${file} è cambiato fuori da Card Studio. Ricaricalo prima di spostare carte.`)
   }
+  if (source.blueprintName && source.blueprintName === target.blueprintName) synchronizeBlueprintFields(source.blueprintName, mergeColumnDefinitions(source.columns, target.columns))
   const card = draft ? resolveConditionalValues(source.columns, { ...draft, id: cardId, updatedAt: new Date().toISOString() }) : source.cards[index]
   const values = { ...card.values }
   for (const targetColumn of target.columns) {
@@ -1027,9 +1110,16 @@ app.whenReady().then(() => {
   ipcMain.handle('columns:save', async (_event, nextColumns: ColumnDefinition[]) => {
     const current = activeSet()
     if (!current) return
-    current.columns = nextColumns
+    if (current.blueprintName) {
+      const columns = synchronizeBlueprintFields(current.blueprintName, nextColumns)
+      for (const set of sets.filter((item) => item.blueprintName === current.blueprintName)) set.cards = set.cards.map((card) => resolveConditionalValues(columns, card))
+    } else {
+      current.columns = nextColumns
+      current.cards = current.cards.map((card) => resolveConditionalValues(nextColumns, card))
+    }
     await persistSets()
   })
+  ipcMain.handle('blueprints:assignments-save', async (_event, assignments: Record<string, string>) => saveBlueprintAssignments(assignments))
   ipcMain.handle('variables:save', async (_event, nextVariables: ProjectVariable[]) => {
     if (!activeProject) throw new Error('Apri prima un progetto Tabletop Creator.')
     const filePath = path.join(activeProject, 'data', 'variables.json')
