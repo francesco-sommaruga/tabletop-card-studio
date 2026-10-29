@@ -64,7 +64,7 @@ export interface ProjectVariable {
   force_tint?: string
   color?: string
   studioTags?: string[]
-  studioType?: 'text' | 'color'
+  studioType?: 'text' | 'color' | 'icon'
   [key: string]: unknown
 }
 
@@ -168,6 +168,7 @@ export interface CardCmsApi {
   saveCards: (cards: Card[]) => Promise<void>
   saveColumns: (columns: ColumnDefinition[]) => Promise<void>
   saveVariables: (variables: ProjectVariable[]) => Promise<ProjectSnapshot>
+  resolveIcon: (reference: string) => Promise<string | null>
   selectSet: (id: string) => Promise<ProjectSnapshot>
   renameSet: (id: string, name: string) => Promise<ProjectSnapshot>
   importWorkbooks: (plans: ImportPlan[]) => Promise<ProjectSnapshot>

@@ -63,7 +63,7 @@ I pacchetti vengono generati in `dist/`.
 - Nascondi campi nell’editor senza escluderli dall’Excel e configura regole che compilano valori automaticamente in base ad altri campi (ad esempio colore predefinito quando un’icona è assegnata).
 - Assegna tag e stato alle carte, cerca e filtra per campi e ordina l’archivio.
 - Consulta statistiche per tag e proprietà, anche incrociando due campi e contando carte uniche o copie.
-- Crea e modifica le variabili di `data/variables.json`, assegnagli tag o il tipo Card Studio **Colore salvato**. I campi variabile sono modificabili con un selettore; diventano di sola lettura quando hanno regole condizionali.
+- Crea e modifica le variabili di `data/variables.json`, assegnagli tag o i tipi Card Studio **Colore salvato** e **Icona**. Le icone Tabletop Creator e quelle in `assets/icons/` vengono mostrate in anteprima nei campi testo e variabile. I campi variabile restano modificabili, salvo quando hanno regole condizionali.
 - Gestisci gli asset del progetto e usa le variabili di Tabletop Creator nei campi testuali.
 - Esporta ogni set in `exports/` con nome del set e data/ora nel nome del file e nei metadati del workbook.
 - Collega un repository GitHub e gestisci commit, pull e push con le credenziali Git del computer.
@@ -72,7 +72,7 @@ Per creare un valore automatico, apri **Campi e colonne**, espandi **Regole auto
 
 L’app salva i propri dati in `.tabletop-card-studio/` nella cartella del progetto aperto. Le immagini importate vengono copiate in `assets/images/card-studio/`; nei campi immagine e negli export viene mantenuto il riferimento Tabletop Creator `card-studio/nome.png`. I fogli Excel originali non vengono modificati; gli export sono raccolti in `exports/` e ogni file include il set e la data/ora di generazione nel nome.
 
-I tag e i tipi Card Studio delle variabili sono metadati separati salvati in `.tabletop-card-studio/variable-tags.json` e `variable-types.json`; le definizioni delle variabili continuano a essere salvate nel formato di Tabletop Creator in `data/variables.json`. I campi colore possono selezionare i colori salvati dalla palette del progetto.
+I tag e i tipi Card Studio delle variabili sono metadati separati salvati in `.tabletop-card-studio/variable-tags.json` e `variable-types.json`; le definizioni delle variabili continuano a essere salvate nel formato di Tabletop Creator in `data/variables.json`. Le anteprime icona usano gli asset del progetto in `assets/icons/` e, se disponibile localmente, la libreria integrata di Tabletop Creator.
 
 ## Nuove release
 

@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld('cardCms', {
   saveCards: (cards: Card[]) => ipcRenderer.invoke('cards:save', cards) as Promise<void>,
   saveColumns: (columns: ColumnDefinition[]) => ipcRenderer.invoke('columns:save', columns) as Promise<void>,
   saveVariables: (variables: ProjectVariable[]) => ipcRenderer.invoke('variables:save', variables) as Promise<ProjectSnapshot>,
+  resolveIcon: (reference: string) => ipcRenderer.invoke('icons:resolve', reference) as Promise<string | null>,
   selectSet: (id: string) => ipcRenderer.invoke('sets:select', id) as Promise<ProjectSnapshot>,
   renameSet: (id: string, name: string) => ipcRenderer.invoke('sets:rename', id, name) as Promise<ProjectSnapshot>,
   importWorkbooks: (plans: ImportPlan[]) => ipcRenderer.invoke('workbooks:import', plans) as Promise<ProjectSnapshot>,

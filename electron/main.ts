@@ -2,7 +2,7 @@ import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from 'electro
 import { execFile } from 'node:child_process'
 import path from 'node:path'
 import fs from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import ExcelJS from 'exceljs'
 import type { Card, ColumnDefinition, GitCommitSummary, GitFileStatus, GitStatus, ImportPlan, MergeFieldChange, MergeFieldConflict, ProjectAsset, ProjectSet, ProjectSnapshot, ProjectSummary, ProjectVariable, WorkbookInfo, WorkbookMergePreview } from '../src/types'
 import { resolveConditionalValues } from '../src/conditional'
@@ -396,6 +396,59 @@ async function scanAssets(): Promise<ProjectAsset[]> {
   }))
 }
 
+function tabletopBuiltInIconRoots(): string[] {
+  const home = app.getPath('home')
+  const steamRoots = [
+    process.env.STEAM_DIR,
+    process.env.STEAM_COMPAT_CLIENT_INSTALL_PATH,
+    path.join(home, '.local', 'share', 'Steam'),
+    path.join(home, '.steam', 'steam'),
+    path.join(home, 'Library', 'Application Support', 'Steam'),
+    process.env['ProgramFiles(x86)'] ? path.join(process.env['ProgramFiles(x86)']!, 'Steam') : undefined,
+    process.env.ProgramFiles ? path.join(process.env.ProgramFiles, 'Steam') : undefined,
+  ].filter((item): item is string => Boolean(item))
+  const libraries = new Set(steamRoots)
+  for (const root of steamRoots) {
+    try {
+      const config = readFileSync(path.join(root, 'steamapps', 'libraryfolders.vdf'), 'utf8')
+      for (const match of config.matchAll(/"path"\s+"([^"]+)"/g)) libraries.add(match[1].replace(/\\\\/g, '\\'))
+    } catch { /* Steam may be installed outside this location */ }
+  }
+  const roots: string[] = []
+  for (const library of libraries) {
+    for (const folder of ['TabletopCreatorPro', 'Tabletop Creator Pro', 'TabletopCreator']) {
+      const game = path.join(library, 'steamapps', 'common', folder)
+      roots.push(path.join(game, 'Assets_BuiltIn', 'icons'))
+      for (const appName of ['Tabletop Creator Pro.app', 'TabletopCreator.app', 'Tabletop Creator.app']) {
+        roots.push(path.join(game, appName, 'Contents', 'Resources', 'Assets_BuiltIn', 'icons'))
+      }
+    }
+  }
+  return [...new Set(roots)].filter((root) => existsSync(root))
+}
+
+async function resolveProjectIcon(reference: string): Promise<string | null> {
+  const normalized = reference.trim().replace(/\\/g, '/').replace(/^\{\s*|\s*\}$/g, '')
+  if (!normalized || normalized.split('/').some((part) => part === '..')) return null
+  const relative = normalized.replace(/^icons\//i, '')
+  const projectRoot = path.join(activeProject, 'assets', 'icons')
+  const roots = [projectRoot, ...tabletopBuiltInIconRoots()]
+  const extensions = path.extname(relative) ? [''] : ['.png', '.svg', '.webp', '.jpg', '.jpeg']
+  for (const root of roots) {
+    for (const extension of extensions) {
+      const file = path.join(root, ...relative.split('/')) + extension
+      if (!existsSync(file)) continue
+      const ext = path.extname(file).toLowerCase()
+      try {
+        if (ext === '.svg') return `data:image/svg+xml;base64,${(await fs.readFile(file)).toString('base64')}`
+        const image = nativeImage.createFromPath(file)
+        if (!image.isEmpty()) return image.resize({ width: 160, height: 160, quality: 'good' }).toDataURL()
+      } catch { /* an unsupported icon remains identifiable by its name */ }
+    }
+  }
+  return null
+}
+
 async function loadVariables(): Promise<ProjectVariable[]> {
   try {
     const json = JSON.parse(await fs.readFile(path.join(activeProject, 'data', 'variables.json'), 'utf8'))
@@ -405,7 +458,7 @@ async function loadVariables(): Promise<ProjectVariable[]> {
       const metadata = JSON.parse(await fs.readFile(path.join(activeProject, dataDirName, 'variable-tags.json'), 'utf8'))
       if (metadata && typeof metadata === 'object' && metadata.variables && typeof metadata.variables === 'object') tagMap = metadata.variables
     } catch { /* no CMS tag metadata yet */ }
-    let typeMap: Record<string, 'text' | 'color'> = {}
+    let typeMap: Record<string, 'text' | 'color' | 'icon'> = {}
     try {
       const metadata = JSON.parse(await fs.readFile(path.join(activeProject, dataDirName, 'variable-types.json'), 'utf8'))
       if (metadata && typeof metadata === 'object' && metadata.variables && typeof metadata.variables === 'object') typeMap = metadata.variables
@@ -610,7 +663,7 @@ app.whenReady().then(() => {
     await fs.mkdir(path.dirname(metadataPath), { recursive: true })
     await fs.writeFile(metadataPath, JSON.stringify({ variables: tagMap }, null, 2))
     const typeMap = Object.fromEntries(nextVariables
-      .filter((variable) => variable.studioType === 'color')
+      .filter((variable) => variable.studioType === 'color' || variable.studioType === 'icon')
       .map((variable) => [variable.code.toLocaleLowerCase(), variable.studioType]))
     const typeMetadataPath = path.join(activeProject, dataDirName, 'variable-types.json')
     await fs.writeFile(typeMetadataPath, JSON.stringify({ variables: typeMap }, null, 2))
@@ -667,6 +720,7 @@ app.whenReady().then(() => {
     }
     return assets
   })
+  ipcMain.handle('icons:resolve', (_event, reference: string) => resolveProjectIcon(reference))
   ipcMain.handle('project:export', async () => {
     const current = activeSet()
     if (!activeProject || !current) return null
