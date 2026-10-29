@@ -195,7 +195,7 @@ export interface ProjectSnapshot {
   projectName: string
   cards: Card[]
   columns: ColumnDefinition[]
-  sets: Array<Pick<ProjectSet, 'id' | 'name' | 'sourceFile' | 'nativeSetFile'> & { cardCount: number }>
+  sets: Array<Pick<ProjectSet, 'id' | 'name' | 'sourceFile' | 'nativeSetFile' | 'nativeSetIndex'> & { cardCount: number }>
   activeSetId: string | null
   workbooks: WorkbookInfo[]
   assets: ProjectAsset[]
@@ -234,6 +234,7 @@ export interface CardCmsApi {
   exportExcel: (cardIds?: string[]) => Promise<{ path: string; count: number } | null>
   linkNativeSet: (setId: string, file: string, index: number) => Promise<ProjectSnapshot>
   createNativeSet: (setId: string, name: string, blueprintName: string) => Promise<ProjectSnapshot>
+  unlinkNativeSet: (setId: string) => Promise<ProjectSnapshot>
   duplicateSet: (setId: string) => Promise<ProjectSnapshot>
   moveCard: (cardId: string, targetSetId: string, draft?: Card) => Promise<ProjectSnapshot>
 }

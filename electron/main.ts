@@ -46,7 +46,7 @@ function snapshot(): ProjectSnapshot {
     projectName,
     cards: current?.cards ?? [],
     columns: current?.columns ?? [],
-    sets: sets.map(({ id, name, sourceFile, nativeSetFile, cards }) => ({ id, name, sourceFile, nativeSetFile, cardCount: cards.length })),
+    sets: sets.map(({ id, name, sourceFile, nativeSetFile, nativeSetIndex, cards }) => ({ id, name, sourceFile, nativeSetFile, nativeSetIndex, cardCount: cards.length })),
     activeSetId,
     workbooks,
     assets,
@@ -709,8 +709,11 @@ async function openProject(folder: string): Promise<ProjectSnapshot> {
 async function connectNativeSet(setId: string, file: string, index: number): Promise<ProjectSnapshot> {
   const target = sets.find((set) => set.id === setId)
   if (!target) throw new Error('Il set Card Studio da collegare non esiste più.')
+  if (target.nativeSetFile) throw new Error(`“${target.name}” è già collegato a un set Tabletop Creator. Scollegalo prima di assegnarne un altro.`)
   const safeFile = path.basename(file)
   if (safeFile !== file || !safeFile.toLowerCase().endsWith('.json')) throw new Error('Il file del set nativo non è valido.')
+  const alreadyLinked = sets.find((set) => set.nativeSetFile && path.basename(set.nativeSetFile) === safeFile && set.nativeSetIndex === index)
+  if (alreadyLinked) throw new Error(`Il set Tabletop Creator è già collegato a “${alreadyLinked.name}”. Scollega prima quel collegamento.`)
   const filePath = path.join(activeProject, 'data', 'sets', safeFile)
   const raw = await fs.readFile(filePath)
   const document = JSON.parse(raw.toString('utf8'))
@@ -749,6 +752,7 @@ async function createNativeSet(setId: string, name: string, blueprintName: strin
   const target = sets.find((set) => set.id === setId)
   const trimmedName = name.trim()
   if (!target) throw new Error('Il set Card Studio da collegare non esiste più.')
+  if (target.nativeSetFile) throw new Error(`“${target.name}” è già collegato a un set Tabletop Creator. Scollegalo prima di crearne un altro.`)
   if (!trimmedName) throw new Error('Inserisci un nome per il set Tabletop Creator.')
   if (!blueprints.some((blueprint) => blueprint.name === blueprintName)) throw new Error('Scegli un blueprint presente nel progetto Tabletop Creator.')
   if (nativeSets.some((nativeSet) => nativeSet.name.toLocaleLowerCase() === trimmedName.toLocaleLowerCase())) throw new Error(`Esiste già un set Tabletop Creator chiamato “${trimmedName}”.`)
@@ -772,6 +776,18 @@ async function createNativeSet(setId: string, name: string, blueprintName: strin
   target.nativeSetIndex = 0
   target.nativeSetHash = sha256(serialized)
   nativeSets = await scanNativeSets()
+  await persistSets(false)
+  return snapshot()
+}
+
+async function disconnectNativeSet(setId: string): Promise<ProjectSnapshot> {
+  const target = sets.find((set) => set.id === setId)
+  if (!target) throw new Error('Il set Card Studio selezionato non esiste più.')
+  if (!target.nativeSetFile) throw new Error(`“${target.name}” non è collegato a un set Tabletop Creator.`)
+  target.nativeSetFile = undefined
+  target.nativeSetIndex = undefined
+  target.nativeSetHash = undefined
+  target.cards = target.cards.map(({ nativeItem: _nativeItem, ...card }) => card)
   await persistSets(false)
   return snapshot()
 }
@@ -1042,6 +1058,7 @@ app.whenReady().then(() => {
   ipcMain.handle('sets:select', async (_event, id: string) => { if (sets.some((set) => set.id === id)) activeSetId = id; return snapshot() })
   ipcMain.handle('sets:link-native', async (_event, setId: string, file: string, index: number) => connectNativeSet(setId, file, index))
   ipcMain.handle('sets:create-native', async (_event, setId: string, name: string, blueprintName: string) => createNativeSet(setId, name, blueprintName))
+  ipcMain.handle('sets:unlink-native', async (_event, setId: string) => disconnectNativeSet(setId))
   ipcMain.handle('sets:duplicate', async (_event, setId: string) => duplicateProjectSet(setId))
   ipcMain.handle('cards:move', async (_event, cardId: string, targetSetId: string, draft?: Card) => moveCardBetweenSets(cardId, targetSetId, draft))
   ipcMain.handle('sets:rename', async (_event, id: string, name: string) => {
