@@ -5,6 +5,14 @@ import { resolveConditionalValues } from './conditional'
 
 type View = 'cards' | 'columns' | 'assets' | 'github' | 'stats' | 'variables'
 const statuses: CardStatus[] = ['Idea', 'Design', 'Playtest', 'Ready']
+const tableMetaColumns = [
+  { fieldId: 'meta_title', header: 'Carta', label: 'Carta', className: 'col-card', type: 'text' },
+  { fieldId: 'meta_tags', header: 'Tag', label: 'Tag', className: 'col-tags', type: 'text' },
+  { fieldId: 'meta_status', header: 'Stato', label: 'Stato CMS', className: 'col-status', type: 'text' },
+  { fieldId: 'meta_quantity', header: 'Q.tà', label: 'Quantità', className: 'col-qty', type: 'number' },
+  { fieldId: 'meta_updated', header: 'Ultima modifica', label: 'Ultima modifica', className: 'col-updated', type: 'text' },
+]
+const defaultTableColumnIds = tableMetaColumns.map((column) => column.fieldId)
 const metaFields = [
   { id: 'meta_title', label: 'Titolo carta' },
   { id: 'meta_quantity', label: 'Quantità' },
@@ -76,6 +84,8 @@ function App() {
   const [renameTarget, setRenameTarget] = useState<{ id: string; name: string } | null>(null)
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null)
   const [fieldsDirty, setFieldsDirty] = useState(false)
+  const [columnsMenuOpen, setColumnsMenuOpen] = useState(false)
+  const [tableColumnPrefs, setTableColumnPrefs] = useState<{ key: string; ids: string[] } | null>(null)
 
   const refreshProjects = () => window.cardCms.listProjects().then(setProjects)
   useEffect(() => { void refreshProjects() }, [])
@@ -90,12 +100,39 @@ function App() {
   const cards = snapshot?.cards ?? []
   const columns = snapshot?.columns ?? []
   const activeSet = snapshot?.sets.find((set) => set.id === snapshot.activeSetId)
+  const tableColumnKey = snapshot && activeSet ? `tabletop-card-studio:visible-columns:${snapshot.projectPath}:${activeSet.id}` : ''
+  useEffect(() => {
+    if (!tableColumnKey) { setTableColumnPrefs(null); return }
+    try {
+      const stored = window.localStorage.getItem(tableColumnKey)
+      const ids = stored ? JSON.parse(stored) : defaultTableColumnIds
+      setTableColumnPrefs({ key: tableColumnKey, ids: Array.isArray(ids) ? ids.filter((id): id is string => typeof id === 'string') : defaultTableColumnIds })
+    } catch { setTableColumnPrefs({ key: tableColumnKey, ids: defaultTableColumnIds }) }
+  }, [tableColumnKey])
   const tags = useMemo(() => {
     const counts = new Map<string, number>()
     cards.forEach((card) => card.tags.forEach((tag) => counts.set(tag, (counts.get(tag) ?? 0) + 1)))
     return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   }, [cards])
   const listColumns = columns.filter((column, index, all) => column.type !== 'image' && all.findIndex((item) => item.fieldId === column.fieldId) === index)
+  const availableTableColumns = [
+    ...tableMetaColumns,
+    ...columns.filter((column, index, all) => all.findIndex((item) => item.fieldId === column.fieldId) === index).map((column) => ({ fieldId: column.fieldId, header: column.header, label: column.header, className: 'col-custom', type: column.type ?? 'text', definition: column })),
+  ]
+  const visibleTableColumnIds = tableColumnPrefs?.key === tableColumnKey ? tableColumnPrefs.ids : defaultTableColumnIds
+  const visibleTableColumns = availableTableColumns.filter((column) => visibleTableColumnIds.includes(column.fieldId))
+  const tableGridTemplate = [...visibleTableColumns.map((column) => column.fieldId === 'meta_title' ? 'minmax(200px,2fr)' : column.fieldId === 'meta_tags' ? 'minmax(140px,1.3fr)' : column.fieldId === 'meta_status' ? 'minmax(105px,.8fr)' : column.fieldId === 'meta_quantity' ? '62px' : column.fieldId === 'meta_updated' ? 'minmax(120px,.9fr)' : column.type === 'number' ? 'minmax(85px,.65fr)' : 'minmax(125px,1fr)'), '22px'].join(' ')
+  const toggleTableColumn = (fieldId: string) => {
+    if (!tableColumnKey) return
+    const ids = visibleTableColumnIds.includes(fieldId) ? visibleTableColumnIds.filter((id) => id !== fieldId) : [...visibleTableColumnIds, fieldId]
+    setTableColumnPrefs({ key: tableColumnKey, ids })
+    window.localStorage.setItem(tableColumnKey, JSON.stringify(ids))
+  }
+  const resetTableColumns = () => {
+    if (!tableColumnKey) return
+    setTableColumnPrefs({ key: tableColumnKey, ids: defaultTableColumnIds })
+    window.localStorage.setItem(tableColumnKey, JSON.stringify(defaultTableColumnIds))
+  }
   const toggleSort = (fieldId: string) => {
     if (sortField === fieldId) setSortDirection((direction) => direction === 'asc' ? 'desc' : 'asc')
     else { setSortField(fieldId); setSortDirection('asc') }
@@ -245,22 +282,25 @@ function App() {
       {!snapshot ? <ProjectChooser projects={projects} onOpen={(projectPath) => void openPath(projectPath)} onAdd={addProject} /> : view === 'github' ? <GitHubPage status={gitStatus} onRefresh={() => runGitAction(window.cardCms.gitStatus)} onInit={() => runGitAction(window.cardCms.gitInit)} onConnect={(url) => runGitAction(() => window.cardCms.gitConnect(url))} onCommit={(message) => runGitAction(() => window.cardCms.gitCommit(message))} onPull={() => runGitAction(window.cardCms.gitPull)} onPush={() => runGitAction(window.cardCms.gitPush)} onRevert={(hash) => runGitAction(() => window.cardCms.gitRevert(hash))} onOpenGitHub={() => void window.cardCms.openGitHub()} /> : view === 'assets' ? <AssetsPage assets={snapshot.assets} onAdd={addAssets} /> : view === 'variables' ? <VariablesPage key={snapshot.projectPath} projectPath={snapshot.projectPath} variables={snapshot.variables} onSave={updateVariables} onDirty={setFieldsDirty} /> : !activeSet ? <ImportLanding snapshot={snapshot} onImport={() => void refreshWorkbooks()} onCreate={createSet} /> : view === 'stats' ? <StatisticsPage key={snapshot.activeSetId} cards={cards} columns={columns} /> : view === 'cards' ? <div className="page-content">
         <div className="page-heading"><div><div className="eyebrow"><span className="eyebrow-line" />SET · {activeSet.name.toLocaleUpperCase()}</div><h1>Le tue carte<span className="heading-period">.</span></h1><p>{activeSet.sourceFile ? `Importate da ${activeSet.sourceFile}.` : 'Un tavolo ordinato per le idee in movimento.'}</p></div><button className="button button-primary add-button" onClick={addCard}><Plus size={17} />Nuova carta</button></div>
         <section className="overview-strip"><div className="overview-cell total-cell"><span className="metric-label">CARTE NEL SET</span><div className="metric-line"><strong>{String(cards.length).padStart(2, '0')}</strong><span>carte</span></div></div><div className="overview-cell"><span className="metric-label">IN PLAYTEST</span><div className="metric-line"><strong>{String(cards.filter((card) => card.status === 'Playtest').length).padStart(2, '0')}</strong><span>carte</span></div></div><div className="overview-cell"><span className="metric-label">PRONTE</span><div className="progress-line"><div className="progress-track"><span style={{ width: `${progress}%` }} /></div><strong>{progress}%</strong></div><span className="metric-foot">{cards.filter((card) => card.status === 'Ready').length} di {cards.length} carte complete</span></div><div className="overview-note"><Sparkles size={17} /><span>{snapshot.sets.length} set nel progetto<br />{snapshot.workbooks.length} file Excel rilevati</span></div></section>
-        <div className="list-toolbar"><div className="list-title"><h2>Archivio</h2><span>{filteredCards.length} di {cards.length} {cards.length === 1 ? 'carta' : 'carte'}</span>{activeTag && <button className="active-filter" onClick={() => setActiveTag('')}><Tag size={12} />{activeTag}<X size={12} /></button>}</div><div className="list-controls"><label className="search-box"><Search size={15} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cerca una carta…" /></label><label className="select-wrap" title="Filtra per stato"><select value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)}><option>Tutti gli stati</option>{statuses.map((status) => <option key={status}>{status}</option>)}</select><ChevronDown size={14} /></label><label className="select-wrap" title="Filtra per campo"><select value={propertyFilterField} onChange={(event) => { setPropertyFilterField(event.target.value); setPropertyFilterValue('') }}><option value="">Filtra campo…</option><option value="meta_tags">Tag</option>{listColumns.map((column) => <option key={column.id} value={column.fieldId}>{column.header}</option>)}</select><ChevronDown size={14} /></label>{propertyFilterField && <label className="select-wrap" title="Valore del filtro"><select value={propertyFilterValue} onChange={(event) => setPropertyFilterValue(event.target.value)}><option value="">Tutti i valori</option>{propertyFilterOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select><ChevronDown size={14} /></label>}</div></div>
+        <div className="list-toolbar"><div className="list-title"><h2>Archivio</h2><span>{filteredCards.length} di {cards.length} {cards.length === 1 ? 'carta' : 'carte'}</span>{activeTag && <button className="active-filter" onClick={() => setActiveTag('')}><Tag size={12} />{activeTag}<X size={12} /></button>}</div><div className="list-controls"><label className="search-box"><Search size={15} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cerca una carta…" /></label><label className="select-wrap" title="Filtra per stato"><select value={filterStatus} onChange={(event) => setFilterStatus(event.target.value)}><option>Tutti gli stati</option>{statuses.map((status) => <option key={status}>{status}</option>)}</select><ChevronDown size={14} /></label><label className="select-wrap" title="Filtra per campo"><select value={propertyFilterField} onChange={(event) => { setPropertyFilterField(event.target.value); setPropertyFilterValue('') }}><option value="">Filtra campo…</option><option value="meta_tags">Tag</option>{listColumns.map((column) => <option key={column.id} value={column.fieldId}>{column.header}</option>)}</select><ChevronDown size={14} /></label>{propertyFilterField && <label className="select-wrap" title="Valore del filtro"><select value={propertyFilterValue} onChange={(event) => setPropertyFilterValue(event.target.value)}><option value="">Tutti i valori</option>{propertyFilterOptions.map((value) => <option key={value} value={value}>{value}</option>)}</select><ChevronDown size={14} /></label>}<div className="table-columns-menu"><button type="button" className={`table-columns-trigger ${columnsMenuOpen ? 'active' : ''}`} onClick={() => setColumnsMenuOpen((open) => !open)} aria-expanded={columnsMenuOpen}><Columns3 size={14}/>Colonne <span>{visibleTableColumns.length}</span></button>{columnsMenuOpen && <section className="table-columns-popover" aria-label="Colonne visibili"><header><strong>Colonne visibili</strong><button type="button" onClick={resetTableColumns}>Predefinite</button></header><div>{availableTableColumns.map((column) => <label key={column.fieldId}><input type="checkbox" checked={visibleTableColumnIds.includes(column.fieldId)} onChange={() => toggleTableColumn(column.fieldId)}/><span>{column.label}</span></label>)}</div></section>}</div></div></div>
         <div className="cards-table">
-          <div className="table-head">
-            <button type="button" className="table-sort col-card" onClick={() => toggleSort('meta_title')} aria-label={`Ordina per carta${sortIndicator('meta_title')}`} title="Ordina per carta">CARTA{sortIndicator('meta_title')}</button>
-            <button type="button" className="table-sort col-tags" onClick={() => toggleSort('meta_tags')} aria-label={`Ordina per tag${sortIndicator('meta_tags')}`} title="Ordina per tag">TAG{sortIndicator('meta_tags')}</button>
-            <button type="button" className="table-sort col-status" onClick={() => toggleSort('meta_status')} aria-label={`Ordina per stato${sortIndicator('meta_status')}`} title="Ordina per stato">STATO{sortIndicator('meta_status')}</button>
-            <button type="button" className="table-sort col-qty" onClick={() => toggleSort('meta_quantity')} aria-label={`Ordina per quantità${sortIndicator('meta_quantity')}`} title="Ordina per quantità">Q.TÀ{sortIndicator('meta_quantity')}</button>
-            <button type="button" className="table-sort col-updated" onClick={() => toggleSort('meta_updated')} aria-label={`Ordina per ultima modifica${sortIndicator('meta_updated')}`} title="Ordina per ultima modifica">ULTIMA MODIFICA{sortIndicator('meta_updated')}</button>
-            <span className="col-action" />
+          <div className="table-head" style={{ gridTemplateColumns: tableGridTemplate }}>
+            {visibleTableColumns.map((column) => <button key={column.fieldId} type="button" className={`table-sort ${column.className}`} onClick={() => toggleSort(column.fieldId)} aria-label={`Ordina per ${column.label}${sortIndicator(column.fieldId)}`} title={`Ordina per ${column.label}`}>{column.header.toLocaleUpperCase()}{sortIndicator(column.fieldId)}</button>)}<span className="col-action" />
           </div>
-          {filteredCards.length ? filteredCards.map((card, index) => <button key={card.id} className="card-row" onClick={() => setSelected(card)}>
-            <span className="card-name col-card"><span className={`card-index tone-${index % 4}`}>{String(index + 1).padStart(2, '0')}</span><span><strong>{card.title || 'Carta senza titolo'}</strong><small>{preview(card, columns, snapshot.assets, snapshot.variables, snapshot.projectPath)}</small></span></span>
-            <span className="col-tags row-tags">{card.tags.length ? card.tags.slice(0, 3).map((tag) => <span className="tag-pill" key={tag}>{tag}</span>) : <span className="muted-dash">—</span>}{card.tags.length > 3 && <span className="tag-extra">+{card.tags.length - 3}</span>}</span>
-            <span className="col-status"><span className={`status-pill status-${card.status.toLowerCase()}`}><i />{card.status}</span></span>
-            <span className="col-qty quantity">{String(card.quantity).padStart(2, '0')}</span>
-            <span className="col-updated updated">{formatDate(card.updatedAt)}</span>
+          {filteredCards.length ? filteredCards.map((card, index) => <button key={card.id} className="card-row" style={{ gridTemplateColumns: tableGridTemplate }} onClick={() => setSelected(card)} aria-label={`Modifica ${card.title || 'carta senza titolo'}`}>
+            {visibleTableColumns.map((column) => {
+              if (column.fieldId === 'meta_title') return <span key={column.fieldId} className="card-name col-card"><span className={`card-index tone-${index % 4}`}>{String(index + 1).padStart(2, '0')}</span><span><strong>{card.title || 'Carta senza titolo'}</strong><small>{preview(card, columns, snapshot.assets, snapshot.variables, snapshot.projectPath)}</small></span></span>
+              if (column.fieldId === 'meta_tags') return <span key={column.fieldId} className="col-tags row-tags">{card.tags.length ? card.tags.slice(0, 3).map((tag) => <span className="tag-pill" key={tag}>{tag}</span>) : <span className="muted-dash">—</span>}{card.tags.length > 3 && <span className="tag-extra">+{card.tags.length - 3}</span>}</span>
+              if (column.fieldId === 'meta_status') return <span key={column.fieldId} className="col-status"><span className={`status-pill status-${card.status.toLowerCase()}`}><i />{card.status}</span></span>
+              if (column.fieldId === 'meta_quantity') return <span key={column.fieldId} className="col-qty quantity">{String(card.quantity).padStart(2, '0')}</span>
+              if (column.fieldId === 'meta_updated') return <span key={column.fieldId} className="col-updated updated">{formatDate(card.updatedAt)}</span>
+              const definition = columns.find((item) => item.fieldId === column.fieldId)
+              const value = card.values[column.fieldId]?.trim() ?? ''
+              const asset = definition?.type === 'image' ? snapshot.assets.find((item) => item.path === value || item.name === value) : undefined
+              if (definition?.type === 'image' && asset?.previewUrl) return <span key={column.fieldId} className="table-image-cell" title={asset.name}><img src={asset.previewUrl} alt=""/><small>{asset.name}</small></span>
+              if (definition?.type === 'color' && value) return <span key={column.fieldId} className="table-custom-cell" title={value}><i className="table-color-swatch" style={{ backgroundColor: value }}/><span>{value}</span></span>
+              return <span key={column.fieldId} className="table-custom-cell" title={value || '—'}>{value || <span className="muted-dash">—</span>}</span>
+            })}
             <span className="col-action row-chevron"><ArrowRight size={15} /></span>
           </button>) : <div className="empty-list"><div className="empty-mark"><BookOpen size={21} /></div><strong>{search || activeTag || filterStatus !== 'Tutti gli stati' || propertyFilterValue ? 'Nessuna carta corrisponde.' : 'Il set comincia da qui.'}</strong><span>{cards.length ? 'Prova a cambiare i filtri oppure aggiungi una carta.' : 'Importa un foglio o crea una nuova carta.'}</span>{!cards.length && <div className="empty-actions"><button className="button button-primary" onClick={addCard}><Plus size={15} />Crea carta</button><button className="text-button" onClick={() => void refreshWorkbooks()}><FileSpreadsheet size={15} />Importa Excel</button></div>}</div>}
         </div>
