@@ -68,6 +68,8 @@ function App() {
   const [sortField, setSortField] = useState('meta_updated')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
   const [importOpen, setImportOpen] = useState(false)
+  const [exportOpen, setExportOpen] = useState(false)
+  const [exporting, setExporting] = useState(false)
   const [mergePreview, setMergePreview] = useState<WorkbookMergePreview | null>(null)
   const [renameTarget, setRenameTarget] = useState<{ id: string; name: string } | null>(null)
   const [gitStatus, setGitStatus] = useState<GitStatus | null>(null)
@@ -167,7 +169,17 @@ function App() {
   const switchProject = async () => { if (!confirmDiscardFields()) return; await refreshProjects(); setSnapshot(null); setSelected(null); setView('cards') }
   const addCard = () => { const next = resolveConditionalValues(columns, blankCard()); updateCards([next, ...cards]); setSelected(next) }
   const saveCard = (next: Card) => { next = resolveConditionalValues(columns, next); updateCards(cards.map((card) => card.id === next.id ? { ...next, updatedAt: new Date().toISOString() } : card)); setSelected(null); setToast('Carta aggiornata') }
-  const exportCards = async () => { const result = await window.cardCms.exportExcel(); if (result) setToast(`Esportate ${result.count} carte in ${result.path.split(/[\\/]/).pop()}`) }
+  const exportCards = () => setExportOpen(true)
+  const performExport = async (cardIds?: string[]) => {
+    setExporting(true)
+    try {
+      const result = await window.cardCms.exportExcel(cardIds)
+      if (result) setToast(`Esportate ${result.count} carte in ${result.path.split(/[\\/]/).pop()}`)
+      setExportOpen(false)
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : 'Impossibile esportare il set')
+    } finally { setExporting(false) }
+  }
   const saveSetName = async (name: string) => {
     if (!renameTarget) return
     try { const next = await window.cardCms.renameSet(renameTarget.id, name); setSnapshot(next); setRenameTarget(null); setToast('Nome del set aggiornato') }
@@ -247,6 +259,7 @@ function App() {
     {selected && snapshot && <CardEditor card={selected} columns={columns} assets={snapshot.assets} variables={snapshot.variables} projectPath={snapshot.projectPath} onClose={() => setSelected(null)} onSave={saveCard} onDelete={() => { updateCards(cards.filter((card) => card.id !== selected.id)); setSelected(null); setToast('Carta rimossa dal set') }} />}
       {importOpen && snapshot && <ImportWizard workbooks={snapshot.workbooks} sets={snapshot.sets} onRefresh={async () => { const found = await window.cardCms.scanWorkbooks(); setSnapshot({ ...snapshot, workbooks: found }); return found }} onClose={() => setImportOpen(false)} onImport={finishImport} onMerge={openMergePreview} />}
       {mergePreview && <MergeWizard preview={mergePreview} onPreview={(file, setId, matchFieldId, fieldIds, restoreFieldIds) => window.cardCms.previewWorkbookMerge(file, setId, matchFieldId, fieldIds, restoreFieldIds)} onClose={() => setMergePreview(null)} onApply={applyMerge} />}
+      {exportOpen && <ExportChoiceDialog filteredCount={filteredCards.length} totalCount={cards.length} exporting={exporting} onClose={() => setExportOpen(false)} onExportView={() => void performExport(filteredCards.map((card) => card.id))} onExportAll={() => void performExport()} />}
       {renameTarget && <RenameSetDialog name={renameTarget.name} onClose={() => setRenameTarget(null)} onSave={saveSetName} />}
     {toast && <div className="toast"><Check size={15} />{toast}</div>}
   </div>
@@ -330,6 +343,10 @@ function RenameSetDialog({ name, onClose, onSave }: { name: string; onClose: () 
   const [value, setValue] = useState(name)
   const [error, setError] = useState('')
   return <><button className="scrim" aria-label="Chiudi rinomina set" onClick={onClose}/><section className="rename-set-panel" role="dialog" aria-modal="true" aria-labelledby="rename-set-title"><div className="editor-head"><div><div className="eyebrow"><span className="eyebrow-line"/>ORGANIZZAZIONE SET</div><h2 id="rename-set-title">Rinomina il set.</h2></div><button className="icon-button close-editor" onClick={onClose} aria-label="Chiudi"><X size={18}/></button></div><form onSubmit={(event) => { event.preventDefault(); const next = value.trim(); if (!next) { setError('Inserisci un nome per il set.'); return } onSave(next) }}><label htmlFor="rename-set-input">NOME DEL SET</label><input id="rename-set-input" autoFocus maxLength={80} value={value} onChange={(event) => { setValue(event.target.value); setError('') }}/>{error && <small className="rename-set-error">{error}</small>}<div><button type="button" className="button button-quiet" onClick={onClose}>Annulla</button><button type="submit" className="button button-primary"><Check size={14}/>Salva nome</button></div></form></section></>
+}
+
+function ExportChoiceDialog({ filteredCount, totalCount, exporting, onClose, onExportView, onExportAll }: { filteredCount: number; totalCount: number; exporting: boolean; onClose: () => void; onExportView: () => void; onExportAll: () => void }) {
+  return <><button className="scrim" aria-label="Chiudi esportazione" onClick={onClose} disabled={exporting}/><section className="export-choice-panel" role="dialog" aria-modal="true" aria-labelledby="export-choice-title"><div className="editor-head"><div><div className="eyebrow"><span className="eyebrow-line"/>ESPORTAZIONE EXCEL</div><h2 id="export-choice-title">Quali carte esportare?</h2><p>La vista filtrata include ricerca, stato, tag, campi e ordinamento attivi.</p></div><button className="icon-button close-editor" onClick={onClose} aria-label="Chiudi" disabled={exporting}><X size={18}/></button></div><div className="export-choice-options"><button type="button" className="export-choice-option" onClick={onExportView} disabled={exporting || filteredCount === 0}><span className="export-choice-icon"><Search size={17}/></span><span><strong>Vista filtrata</strong><small>{filteredCount} {filteredCount === 1 ? 'carta' : 'carte'} · mantiene l’ordine della tabella</small></span><ArrowRight size={16}/></button><button type="button" className="export-choice-option" onClick={onExportAll} disabled={exporting}><span className="export-choice-icon"><FileSpreadsheet size={17}/></span><span><strong>Tutto il set</strong><small>{totalCount} {totalCount === 1 ? 'carta' : 'carte'} · ignora i filtri attivi</small></span><ArrowRight size={16}/></button></div>{exporting && <div className="export-choice-progress"><span className="live-dot"/>Preparazione del file Excel…</div>}<div className="export-choice-footer"><button className="button button-quiet" onClick={onClose} disabled={exporting}>Annulla</button></div></section></>
 }
 
 function AssetsPage({ assets, onAdd }: { assets: ProjectAsset[]; onAdd: () => void }) {

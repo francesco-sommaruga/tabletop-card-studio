@@ -25,5 +25,5 @@ contextBridge.exposeInMainWorld('cardCms', {
   gitPull: () => ipcRenderer.invoke('git:pull') as Promise<GitStatus>,
   gitPush: () => ipcRenderer.invoke('git:push') as Promise<GitStatus>,
   openGitHub: () => ipcRenderer.invoke('github:open') as Promise<void>,
-  exportExcel: () => ipcRenderer.invoke('project:export') as Promise<{ path: string; count: number } | null>,
+  exportExcel: (cardIds?: string[]) => ipcRenderer.invoke('project:export', cardIds) as Promise<{ path: string; count: number } | null>,
 })

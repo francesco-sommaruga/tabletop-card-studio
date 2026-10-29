@@ -185,7 +185,7 @@ export interface CardCmsApi {
   gitPull: () => Promise<GitStatus>
   gitPush: () => Promise<GitStatus>
   openGitHub: () => Promise<void>
-  exportExcel: () => Promise<{ path: string; count: number } | null>
+  exportExcel: (cardIds?: string[]) => Promise<{ path: string; count: number } | null>
 }
 
 declare global {

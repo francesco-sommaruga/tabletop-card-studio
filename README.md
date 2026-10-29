@@ -66,7 +66,7 @@ I pacchetti vengono generati in `dist/`.
 - Consulta statistiche per tag e proprietà, anche incrociando due campi e contando carte uniche o copie.
 - Crea e modifica le variabili di `data/variables.json`, assegnagli tag o i tipi Card Studio **Colore salvato** e **Icona**. Le icone Tabletop Creator e quelle in `assets/icons/` vengono mostrate in anteprima nei campi testo e variabile. I campi variabile restano modificabili, salvo quando hanno regole condizionali.
 - Gestisci gli asset del progetto e usa le variabili di Tabletop Creator nei campi testuali.
-- Esporta ogni set in `exports/` con nome del set e data/ora nel nome del file e nei metadati del workbook.
+- Esporta il set intero oppure la vista filtrata corrente (ricerca, stato, tag, campi e ordinamento) in `exports/`, con nome del set e data/ora nel nome del file e nei metadati del workbook.
 - Collega un repository GitHub e gestisci commit, pull e push con le credenziali Git del computer.
 
 Per creare un valore automatico, apri **Campi e colonne**, espandi **Regole automatiche e visibilità** sul campo da compilare e aggiungi una regola. Per `play_area_1_icon:color`, imposta la sorgente su `play_area_1_icon`, la condizione su **è compilato** e il valore da assegnare, ad esempio `#D84A38`. Per associare colori diversi a valori diversi, aggiungi più regole: si applica la prima corrispondenza. Attiva **Nascondi nell’editor carte** per tenere il campo fuori dalla scheda; resterà presente nel foglio esportato.

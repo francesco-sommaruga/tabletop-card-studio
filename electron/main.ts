@@ -721,9 +721,12 @@ app.whenReady().then(() => {
     return assets
   })
   ipcMain.handle('icons:resolve', (_event, reference: string) => resolveProjectIcon(reference))
-  ipcMain.handle('project:export', async () => {
+  ipcMain.handle('project:export', async (_event, cardIds?: string[]) => {
     const current = activeSet()
     if (!activeProject || !current) return null
+    const cardsToExport = cardIds === undefined
+      ? current.cards
+      : cardIds.map((id) => current.cards.find((card) => card.id === id)).filter((card): card is Card => Boolean(card))
     const setSlug = current.name.trim().toLocaleLowerCase().replace(/[^a-z0-9-_]+/gi, '-').replace(/^-|-$/g, '') || 'set'
     const exportedAt = new Date()
     const pad = (value: number) => String(value).padStart(2, '0')
@@ -744,7 +747,7 @@ app.whenReady().then(() => {
     workbook.description = `Set: ${current.name}\nEsportato il: ${exportedAtLabel}`
     const worksheet = workbook.addWorksheet('Cards')
     worksheet.addRow(current.columns.map((column) => column.header))
-    for (const card of current.cards) {
+    for (const card of cardsToExport) {
       const values = resolveConditionalValues(current.columns, card).values
       worksheet.addRow(current.columns.map((column) => {
         const value = column.fieldId === 'meta_title' ? card.title : column.fieldId === 'meta_quantity' ? card.quantity : column.fieldId === 'meta_status' ? card.status : column.fieldId === 'meta_tags' ? card.tags.join(', ') : (values[column.fieldId] ?? '')
@@ -752,7 +755,7 @@ app.whenReady().then(() => {
       }))
     }
     await workbook.xlsx.writeFile(file)
-    return { path: file, count: current.cards.length }
+    return { path: file, count: cardsToExport.length }
   })
   createWindow()
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
