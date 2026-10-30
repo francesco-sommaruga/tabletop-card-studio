@@ -5,7 +5,7 @@ import path from 'node:path'
 import fs from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
 import ExcelJS from 'exceljs'
-import type { Card, ColumnDefinition, GitCommitFile, GitCommitSummary, GitFileStatus, GitStatus, ImportPlan, MergeFieldChange, MergeFieldConflict, NativeSetInfo, ProjectAsset, ProjectIconReference, ProjectSet, ProjectSnapshot, ProjectSummary, ProjectVariable, TabletopBlueprint, WorkbookInfo, WorkbookMergePreview } from '../src/types'
+import type { Card, ColumnDefinition, GitCommitFile, GitCommitSummary, GitFileStatus, GitStatus, ImportPlan, MarkdownDocument, MergeFieldChange, MergeFieldConflict, NativeSetInfo, ProjectAsset, ProjectIconReference, ProjectSet, ProjectSnapshot, ProjectSummary, ProjectVariable, TabletopBlueprint, WorkbookInfo, WorkbookMergePreview } from '../src/types'
 import { resolveConditionalValues } from '../src/conditional'
 
 let win: BrowserWindow | null = null
@@ -1454,7 +1454,8 @@ app.whenReady().then(() => {
     return { path: file, binary: false, content: result.stdout }
   })
   const markdownPath = (file: string) => {
-    if (!activeProject || typeof file !== 'string' || !file.toLocaleLowerCase().endsWith('.md') || path.isAbsolute(file) || file.split(/[\\/]/).some((part) => !part || part === '.' || part === '..')) throw new Error('Percorso Markdown non valido.')
+    const blocked = new Set(['.git', 'node_modules', 'dist', 'renderer-dist', '.tabletop-card-studio', 'build', 'coverage'])
+    if (!activeProject || typeof file !== 'string' || !file.toLocaleLowerCase().endsWith('.md') || path.isAbsolute(file) || file.split(/[\\/]/).some((part) => !part || part === '.' || part === '..' || blocked.has(part.toLocaleLowerCase()))) throw new Error('Percorso Markdown non valido.')
     const root = path.resolve(activeProject)
     const target = path.resolve(root, file)
     if (!target.startsWith(`${root}${path.sep}`)) throw new Error('Il file deve restare all’interno del progetto.')
@@ -1490,6 +1491,34 @@ app.whenReady().then(() => {
     if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > 2_000_000) throw new Error('Il contenuto supera il limite di 2 MB.')
     await writeFileAtomically(target, content)
     return { path: file, content }
+  })
+  ipcMain.handle('markdown:create', async (_event, fileName: string): Promise<MarkdownDocument> => {
+    const name = String(fileName ?? '').trim()
+    if (!name || /[\\/]/.test(name)) throw new Error('Inserisci un nome file senza cartelle.')
+    const file = name.toLocaleLowerCase().endsWith('.md') ? name : `${name}.md`
+    const target = markdownPath(file)
+    await fs.writeFile(target, '', { flag: 'wx' })
+    return { path: file, content: '' }
+  })
+  ipcMain.handle('markdown:rename', async (_event, file: string, newName: string): Promise<MarkdownDocument> => {
+    const source = markdownPath(file)
+    const name = String(newName ?? '').trim()
+    if (!name || /[\\/]/.test(name)) throw new Error('Inserisci un nuovo nome file senza cartelle.')
+    const normalizedName = name.toLocaleLowerCase().endsWith('.md') ? name : `${name}.md`
+    const relative = path.join(path.dirname(file), normalizedName)
+    const target = markdownPath(relative)
+    const stat = await fs.lstat(source)
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('È possibile rinominare solo file Markdown.')
+    if (existsSync(target)) throw new Error('Esiste già un file con questo nome.')
+    const content = await fs.readFile(source, 'utf8')
+    await fs.rename(source, target)
+    return { path: relative.split(path.sep).join('/'), content }
+  })
+  ipcMain.handle('markdown:delete', async (_event, file: string) => {
+    const target = markdownPath(file)
+    const stat = await fs.lstat(target)
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('È possibile eliminare solo file Markdown.')
+    await fs.unlink(target)
   })
   ipcMain.handle('github:open', async () => {
     const status = await readGitStatus()
