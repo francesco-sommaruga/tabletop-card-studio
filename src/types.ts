@@ -184,6 +184,12 @@ export interface GitCommitSummary {
   age: string
 }
 
+export interface GitCommitFile {
+  path: string
+  binary: boolean
+  content?: string
+}
+
 export interface GitStatus {
   isRepo: boolean
   branch: string
@@ -193,6 +199,7 @@ export interface GitStatus {
   ahead: number
   behind: number
   commits: GitCommitSummary[]
+  branches: string[]
   error: string
 }
 
@@ -238,7 +245,11 @@ export interface CardCmsApi {
   gitCommit: (message: string) => Promise<GitStatus>
   gitPull: () => Promise<GitStatus>
   gitPush: () => Promise<GitStatus>
-  gitRevert: (hash: string) => Promise<GitStatus>
+  gitSwitchBranch: (name: string) => Promise<GitStatus>
+  gitCreateBranch: (name: string, commit?: string) => Promise<GitStatus>
+  gitDeleteBranch: (name: string) => Promise<GitStatus>
+  gitCommitFiles: (hash: string) => Promise<string[]>
+  gitCommitFile: (hash: string, file: string) => Promise<GitCommitFile>
   openGitHub: () => Promise<void>
   exportExcel: (cardIds?: string[]) => Promise<{ path: string; count: number } | null>
   linkNativeSet: (setId: string, file: string, index: number) => Promise<ProjectSnapshot>

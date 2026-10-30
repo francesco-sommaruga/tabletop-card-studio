@@ -5,7 +5,7 @@ import path from 'node:path'
 import fs from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
 import ExcelJS from 'exceljs'
-import type { Card, ColumnDefinition, GitCommitSummary, GitFileStatus, GitStatus, ImportPlan, MergeFieldChange, MergeFieldConflict, NativeSetInfo, ProjectAsset, ProjectIconReference, ProjectSet, ProjectSnapshot, ProjectSummary, ProjectVariable, TabletopBlueprint, WorkbookInfo, WorkbookMergePreview } from '../src/types'
+import type { Card, ColumnDefinition, GitCommitFile, GitCommitSummary, GitFileStatus, GitStatus, ImportPlan, MergeFieldChange, MergeFieldConflict, NativeSetInfo, ProjectAsset, ProjectIconReference, ProjectSet, ProjectSnapshot, ProjectSummary, ProjectVariable, TabletopBlueprint, WorkbookInfo, WorkbookMergePreview } from '../src/types'
 import { resolveConditionalValues } from '../src/conditional'
 
 let win: BrowserWindow | null = null
@@ -1329,15 +1329,16 @@ function githubWebUrl(remote: string) {
 }
 
 async function readGitStatus(): Promise<GitStatus> {
-  const empty: GitStatus = { isRepo: false, branch: '', remoteUrl: '', githubUrl: '', changedFiles: [], ahead: 0, behind: 0, commits: [], error: '' }
+  const empty: GitStatus = { isRepo: false, branch: '', remoteUrl: '', githubUrl: '', changedFiles: [], ahead: 0, behind: 0, commits: [], branches: [], error: '' }
   if (!activeProject) return empty
   try { await runGit(['rev-parse', '--is-inside-work-tree']) } catch { return empty }
   try {
-    const [branchResult, statusResult, remoteResult, logResult] = await Promise.all([
+    const [branchResult, statusResult, remoteResult, logResult, branchesResult] = await Promise.all([
       runGit(['branch', '--show-current']).catch(() => ({ stdout: '(detached HEAD)', stderr: '' })),
       runGit(['status', '--porcelain=v1']),
       runGit(['remote', 'get-url', 'origin']).catch(() => ({ stdout: '', stderr: '' })),
       runGit(['log', '-5', '--no-merges', '--format=%h%x09%s%x09%cr']).catch(() => ({ stdout: '', stderr: '' })),
+      runGit(['branch', '--format=%(refname:short)']).catch(() => ({ stdout: '', stderr: '' })),
     ])
     const changedFiles: GitFileStatus[] = statusResult.stdout.split('\n').filter(Boolean).map((line) => ({ status: line.slice(0, 2).trim() || 'M', path: line.slice(3) }))
     let ahead = 0
@@ -1353,7 +1354,7 @@ async function readGitStatus(): Promise<GitStatus> {
       return { hash, subject, age }
     })
     const remoteUrl = remoteResult.stdout
-    return { isRepo: true, branch: branchResult.stdout, remoteUrl, githubUrl: githubWebUrl(remoteUrl), changedFiles, ahead, behind, commits, error: '' }
+    return { isRepo: true, branch: branchResult.stdout, remoteUrl, githubUrl: githubWebUrl(remoteUrl), changedFiles, ahead, behind, commits, branches: branchesResult.stdout.split('\n').filter(Boolean), error: '' }
   } catch (error) {
     return { ...empty, isRepo: true, error: error instanceof Error ? error.message : String(error) }
   }
@@ -1415,19 +1416,43 @@ app.whenReady().then(() => {
     if (!branch) throw new Error('Seleziona un branch prima di inviare le modifiche.')
     await runGit(['push', '--set-upstream', 'origin', branch])
   }))
-  ipcMain.handle('git:revert', (_event, hash: string) => gitAction(async () => {
-    if (!/^[a-f\d]{7,40}$/i.test(hash)) throw new Error('Il riferimento del commit non è valido.')
+  const assertCleanGitTree = async () => {
     const dirty = await runGit(['status', '--porcelain=v1'])
-    if (dirty.stdout) throw new Error('Prima registra o annulla le modifiche locali, poi riprova il ripristino.')
-    await runGit(['cat-file', '-e', `${hash}^{commit}`])
-    const parents = await runGit(['rev-list', '--parents', '-n', '1', hash])
-    if (parents.stdout.split(/\s+/).length > 2) throw new Error('I commit di merge non possono essere annullati da qui.')
-    try { await runGit(['revert', '--no-edit', hash]) }
-    catch (error) {
-      await runGit(['revert', '--abort']).catch(() => undefined)
-      throw error
-    }
+    if (dirty.stdout) throw new Error('Registra o metti da parte le modifiche locali prima di cambiare branch.')
+  }
+  ipcMain.handle('git:branch-switch', (_event, name: string) => gitAction(async () => {
+    if (!name || name.includes('..') || name.startsWith('-')) throw new Error('Il nome del branch non è valido.')
+    await assertCleanGitTree()
+    await runGit(['switch', name])
   }))
+  ipcMain.handle('git:branch-create', (_event, name: string, commit?: string) => gitAction(async () => {
+    const trimmed = String(name ?? '').trim()
+    if (!trimmed || trimmed.startsWith('-')) throw new Error('Inserisci un nome branch valido.')
+    await runGit(['check-ref-format', '--branch', trimmed])
+    await assertCleanGitTree()
+    if (commit) {
+      if (!/^[a-f\d]{7,40}$/i.test(commit)) throw new Error('Il commit selezionato non è valido.')
+      await runGit(['cat-file', '-e', `${commit}^{commit}`])
+      await runGit(['switch', '-c', trimmed, commit])
+    } else await runGit(['switch', '-c', trimmed])
+  }))
+  ipcMain.handle('git:branch-delete', (_event, name: string) => gitAction(async () => {
+    if (!name || name.includes('..') || name.startsWith('-')) throw new Error('Il nome del branch non è valido.')
+    if ((await runGit(['branch', '--show-current'])).stdout === name) throw new Error('Non puoi eliminare il branch attivo.')
+    await runGit(['branch', '-d', name])
+  }))
+  ipcMain.handle('git:commit-files', async (_event, hash: string) => {
+    if (!/^[a-f\d]{7,40}$/i.test(hash)) throw new Error('Il riferimento del commit non è valido.')
+    await runGit(['cat-file', '-e', `${hash}^{commit}`])
+    return (await runGit(['ls-tree', '-r', '--name-only', hash])).stdout.split('\n').filter(Boolean)
+  })
+  ipcMain.handle('git:commit-file', async (_event, hash: string, file: string): Promise<GitCommitFile> => {
+    if (!/^[a-f\d]{7,40}$/i.test(hash) || !file || file.startsWith('/') || file.split(/[\\/]/).includes('..')) throw new Error('Commit o percorso file non valido.')
+    const result = await runGit(['show', `${hash}:${file}`])
+    if (result.stdout.includes('\u0000')) return { path: file, binary: true }
+    if (result.stdout.length > 500_000) return { path: file, binary: false, content: `${result.stdout.slice(0, 500_000)}\n\n…contenuto troncato (oltre 500 KB)…` }
+    return { path: file, binary: false, content: result.stdout }
+  })
   ipcMain.handle('github:open', async () => {
     const status = await readGitStatus()
     if (status.githubUrl) await shell.openExternal(status.githubUrl)

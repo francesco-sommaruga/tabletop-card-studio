@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Card, ColumnDefinition, GitStatus, ImportPlan, ProjectSnapshot, ProjectAsset, ProjectIconReference, ProjectSummary, ProjectVariable, WorkbookInfo, WorkbookMergePreview } from '../src/types'
+import type { Card, ColumnDefinition, GitCommitFile, GitStatus, ImportPlan, ProjectSnapshot, ProjectAsset, ProjectIconReference, ProjectSummary, ProjectVariable, WorkbookInfo, WorkbookMergePreview } from '../src/types'
 
 contextBridge.exposeInMainWorld('cardCms', {
   onNotice: (callback: (message: string) => void) => {
@@ -40,7 +40,11 @@ contextBridge.exposeInMainWorld('cardCms', {
   gitCommit: (message: string) => ipcRenderer.invoke('git:commit', message) as Promise<GitStatus>,
   gitPull: () => ipcRenderer.invoke('git:pull') as Promise<GitStatus>,
   gitPush: () => ipcRenderer.invoke('git:push') as Promise<GitStatus>,
-  gitRevert: (hash: string) => ipcRenderer.invoke('git:revert', hash) as Promise<GitStatus>,
+  gitSwitchBranch: (name: string) => ipcRenderer.invoke('git:branch-switch', name) as Promise<GitStatus>,
+  gitCreateBranch: (name: string, commit?: string) => ipcRenderer.invoke('git:branch-create', name, commit) as Promise<GitStatus>,
+  gitDeleteBranch: (name: string) => ipcRenderer.invoke('git:branch-delete', name) as Promise<GitStatus>,
+  gitCommitFiles: (hash: string) => ipcRenderer.invoke('git:commit-files', hash) as Promise<string[]>,
+  gitCommitFile: (hash: string, file: string) => ipcRenderer.invoke('git:commit-file', hash, file) as Promise<GitCommitFile>,
   openGitHub: () => ipcRenderer.invoke('github:open') as Promise<void>,
   exportExcel: (cardIds?: string[]) => ipcRenderer.invoke('project:export', cardIds) as Promise<{ path: string; count: number } | null>,
 })
