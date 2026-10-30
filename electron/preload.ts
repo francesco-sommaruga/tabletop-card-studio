@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Card, ColumnDefinition, GitCommitFile, GitStatus, ImportPlan, ProjectSnapshot, ProjectAsset, ProjectIconReference, ProjectSummary, ProjectVariable, WorkbookInfo, WorkbookMergePreview } from '../src/types'
+import type { Card, ColumnDefinition, GitCommitFile, GitStatus, ImportPlan, MarkdownDocument, ProjectSnapshot, ProjectAsset, ProjectIconReference, ProjectSummary, ProjectVariable, WorkbookInfo, WorkbookMergePreview } from '../src/types'
 
 contextBridge.exposeInMainWorld('cardCms', {
   onNotice: (callback: (message: string) => void) => {
@@ -45,6 +45,9 @@ contextBridge.exposeInMainWorld('cardCms', {
   gitDeleteBranch: (name: string) => ipcRenderer.invoke('git:branch-delete', name) as Promise<GitStatus>,
   gitCommitFiles: (hash: string) => ipcRenderer.invoke('git:commit-files', hash) as Promise<string[]>,
   gitCommitFile: (hash: string, file: string) => ipcRenderer.invoke('git:commit-file', hash, file) as Promise<GitCommitFile>,
+  markdownList: () => ipcRenderer.invoke('markdown:list') as Promise<string[]>,
+  markdownRead: (file: string) => ipcRenderer.invoke('markdown:read', file) as Promise<MarkdownDocument>,
+  markdownSave: (file: string, content: string) => ipcRenderer.invoke('markdown:save', file, content) as Promise<MarkdownDocument>,
   openGitHub: () => ipcRenderer.invoke('github:open') as Promise<void>,
   exportExcel: (cardIds?: string[]) => ipcRenderer.invoke('project:export', cardIds) as Promise<{ path: string; count: number } | null>,
 })

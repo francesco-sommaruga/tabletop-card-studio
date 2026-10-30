@@ -190,6 +190,11 @@ export interface GitCommitFile {
   content?: string
 }
 
+export interface MarkdownDocument {
+  path: string
+  content: string
+}
+
 export interface GitStatus {
   isRepo: boolean
   branch: string
@@ -250,6 +255,9 @@ export interface CardCmsApi {
   gitDeleteBranch: (name: string) => Promise<GitStatus>
   gitCommitFiles: (hash: string) => Promise<string[]>
   gitCommitFile: (hash: string, file: string) => Promise<GitCommitFile>
+  markdownList: () => Promise<string[]>
+  markdownRead: (file: string) => Promise<MarkdownDocument>
+  markdownSave: (file: string, content: string) => Promise<MarkdownDocument>
   openGitHub: () => Promise<void>
   exportExcel: (cardIds?: string[]) => Promise<{ path: string; count: number } | null>
   linkNativeSet: (setId: string, file: string, index: number) => Promise<ProjectSnapshot>

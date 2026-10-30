@@ -71,6 +71,7 @@ I pacchetti vengono generati in `dist/`.
 - Gestisci gli asset del progetto e usa le variabili di Tabletop Creator nei campi testuali.
 - Esporta il set intero oppure la vista filtrata corrente (ricerca, stato, tag, campi e ordinamento) in `exports/`, con nome del set e data/ora nel nome del file e nei metadati del workbook.
 - Collega un repository GitHub e gestisci commit, pull e push con le credenziali Git del computer; esplora in sola lettura i file di un commit e crea un branch da quel punto. La gestione opzionale dei branch locali permette di crearli, aprirli e rimuoverli.
+- Apri i documenti Markdown del progetto, visualizzali con anteprima e modifica README o altri file `.md`; il salvataggio compare tra le modifiche locali Git.
 
 Per creare un valore automatico, apri **Campi e colonne**, espandi **Regole automatiche e visibilità** sul campo da compilare e aggiungi una regola. Per `play_area_1_icon:color`, imposta la sorgente su `play_area_1_icon`, la condizione su **è compilato** e il valore da assegnare, ad esempio `#D84A38`. Per associare colori diversi a valori diversi, aggiungi più regole: si applica la prima corrispondenza. Attiva **Nascondi nell’editor carte** per tenere il campo fuori dalla scheda; resterà presente nel foglio esportato.
 

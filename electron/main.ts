@@ -1453,6 +1453,44 @@ app.whenReady().then(() => {
     if (result.stdout.length > 500_000) return { path: file, binary: false, content: `${result.stdout.slice(0, 500_000)}\n\n…contenuto troncato (oltre 500 KB)…` }
     return { path: file, binary: false, content: result.stdout }
   })
+  const markdownPath = (file: string) => {
+    if (!activeProject || typeof file !== 'string' || !file.toLocaleLowerCase().endsWith('.md') || path.isAbsolute(file) || file.split(/[\\/]/).some((part) => !part || part === '.' || part === '..')) throw new Error('Percorso Markdown non valido.')
+    const root = path.resolve(activeProject)
+    const target = path.resolve(root, file)
+    if (!target.startsWith(`${root}${path.sep}`)) throw new Error('Il file deve restare all’interno del progetto.')
+    return target
+  }
+  ipcMain.handle('markdown:list', async () => {
+    if (!activeProject) return []
+    const found: string[] = []
+    const ignored = new Set(['.git', 'node_modules', 'dist', 'renderer-dist', '.tabletop-card-studio', 'build', 'coverage'])
+    const visit = async (directory: string): Promise<void> => {
+      let entries
+      try { entries = await fs.readdir(directory, { withFileTypes: true }) } catch { return }
+      for (const entry of entries) {
+        if (entry.isSymbolicLink()) continue
+        const absolute = path.join(directory, entry.name)
+        if (entry.isDirectory()) { if (!ignored.has(entry.name)) await visit(absolute) }
+        else if (entry.isFile() && entry.name.toLocaleLowerCase().endsWith('.md')) found.push(path.relative(activeProject, absolute).split(path.sep).join('/'))
+      }
+    }
+    await visit(activeProject)
+    return found.sort((a, b) => a.localeCompare(b, 'it', { sensitivity: 'base' }))
+  })
+  ipcMain.handle('markdown:read', async (_event, file: string) => {
+    const target = markdownPath(file)
+    const stat = await fs.lstat(target)
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 2_000_000) throw new Error('Il file Markdown non è valido o supera 2 MB.')
+    return { path: file, content: await fs.readFile(target, 'utf8') }
+  })
+  ipcMain.handle('markdown:save', async (_event, file: string, content: string) => {
+    const target = markdownPath(file)
+    const stat = await fs.lstat(target)
+    if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('È possibile modificare solo file Markdown esistenti.')
+    if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > 2_000_000) throw new Error('Il contenuto supera il limite di 2 MB.')
+    await writeFileAtomically(target, content)
+    return { path: file, content }
+  })
   ipcMain.handle('github:open', async () => {
     const status = await readGitStatus()
     if (status.githubUrl) await shell.openExternal(status.githubUrl)
