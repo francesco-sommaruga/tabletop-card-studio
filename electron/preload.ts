@@ -51,6 +51,7 @@ contextBridge.exposeInMainWorld('cardCms', {
   markdownCreate: (file: string) => ipcRenderer.invoke('markdown:create', file) as Promise<MarkdownDocument>,
   markdownRename: (file: string, newName: string) => ipcRenderer.invoke('markdown:rename', file, newName) as Promise<MarkdownDocument>,
   markdownDelete: (file: string) => ipcRenderer.invoke('markdown:delete', file) as Promise<void>,
+  reloadBlueprints: () => ipcRenderer.invoke('blueprints:reload') as Promise<ProjectSnapshot>,
   openGitHub: () => ipcRenderer.invoke('github:open') as Promise<void>,
   exportExcel: (cardIds?: string[]) => ipcRenderer.invoke('project:export', cardIds) as Promise<{ path: string; count: number } | null>,
 })

@@ -261,6 +261,7 @@ export interface CardCmsApi {
   markdownCreate: (file: string) => Promise<MarkdownDocument>
   markdownRename: (file: string, newName: string) => Promise<MarkdownDocument>
   markdownDelete: (file: string) => Promise<void>
+  reloadBlueprints: () => Promise<ProjectSnapshot>
   openGitHub: () => Promise<void>
   exportExcel: (cardIds?: string[]) => Promise<{ path: string; count: number } | null>
   linkNativeSet: (setId: string, file: string, index: number) => Promise<ProjectSnapshot>

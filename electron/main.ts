@@ -1395,6 +1395,12 @@ app.whenReady().then(() => {
   ipcMain.handle('project:open-path', async (_event, folder: string) => existsSync(folder) ? openProject(folder) : null)
   ipcMain.handle('project:recent', async () => null)
   ipcMain.handle('projects:list', listProjects)
+  ipcMain.handle('blueprints:reload', async () => {
+    if (!activeProject) throw new Error('Apri prima un progetto Tabletop Creator.')
+    blueprints = await loadBlueprints()
+    await writeDiagnostic('info', 'blueprints.reloaded', { blueprintCount: blueprints.length, blueprintNames: blueprints.map((blueprint) => blueprint.name) })
+    return snapshot()
+  })
   ipcMain.handle('git:status', readGitStatus)
   ipcMain.handle('git:init', () => gitAction(async () => { await runGit(['init']) }))
   ipcMain.handle('git:connect', (_event, remoteUrl: string) => gitAction(async () => {

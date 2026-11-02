@@ -160,3 +160,5 @@
 .markdown-table-wrap{max-width:100%;overflow:auto;margin:1em 0}.markdown-preview table{width:100%;border-collapse:collapse;font-size:11px}.markdown-preview th,.markdown-preview td{padding:7px 9px;border:1px solid #e1d9cc;text-align:left;vertical-align:top}.markdown-preview th{background:#eee8dc;color:#53493d;font-weight:500}
 .markdown-actions>.button{height:30px;font-size:9px;padding:0 8px}.markdown-actions>.markdown-delete{color:#9d6350}.markdown-actions>.markdown-delete:hover:not(:disabled){background:#f3e4db;color:#a54e36}
 @media(max-width:1050px){.markdown-editor>header{align-items:flex-start;flex-direction:column}.markdown-actions{flex-wrap:wrap}.markdown-actions>.button{height:28px}}
+.field-choice-group,.blueprint-field-origin{font:8px var(--mono)!important;letter-spacing:.04em;color:#a15c40!important;text-transform:uppercase}.schema-blueprint-fields>div:not(.schema-blueprint-heading){display:flex;flex-wrap:wrap;gap:7px}
+.preview-blueprint-lock{display:grid;gap:3px;min-width:180px}.preview-blueprint-lock span{font:8px var(--mono);letter-spacing:.1em;color:#a09588}.preview-blueprint-lock strong{font:500 13px var(--serif);color:#584c3f}
