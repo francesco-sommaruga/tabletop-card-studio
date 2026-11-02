@@ -16,7 +16,7 @@ export interface ImportBaselineRow {
   values: Record<string, string>
 }
 
-export type RuleOperator = 'is_set' | 'is_empty' | 'equals' | 'not_equals' | 'contains'
+export type RuleOperator = 'is_set' | 'is_empty' | 'equals' | 'not_equals' | 'contains' | 'greater_than' | 'less_than'
 
 export interface ConditionalValueRule {
   sourceFieldId: string

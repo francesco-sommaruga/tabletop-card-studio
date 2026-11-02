@@ -62,6 +62,7 @@ I pacchetti vengono generati in `dist/`.
 - Reimporta un foglio già collegato a un set: scegli i campi da importare e ripristina le colonne presenti nel foglio ma rimosse dal set, abbina le carte tramite una colonna, applica gli aggiornamenti Excel non in conflitto e scegli per campo nei conflitti; le carte assenti dal foglio restano nel set.
 - Crea campi di testo, testo lungo, numero, select, colore (anche con alpha esadecimale `#RRGGBBAA`), immagine e variabile; riordina le colonne e salva le modifiche prima di applicarle.
 - Imposta un valore predefinito per ogni campo; con regole condizionali viene usato quando nessuna regola corrisponde. Senza default il campo resta vuoto.
+- Le regole condizionali possono confrontare i campi numerici con soglie maggiori o minori.
 - Nascondi campi nell’editor senza escluderli dall’Excel e configura regole che compilano valori automaticamente in base ad altri campi (ad esempio colore predefinito quando un’icona è assegnata).
 - Modifica i campi direttamente nelle righe dell’archivio, assegna tag e stato alle carte, cerca e filtra per campi e ordina l’elenco.
 - Scegli quali colonne mostrare nell’archivio: le colonne di base restano attive al primo avvio e le preferenze vengono salvate per progetto e set.

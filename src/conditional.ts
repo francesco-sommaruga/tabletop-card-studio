@@ -32,6 +32,12 @@ export function resolveConditionalValues(columns: ColumnDefinition[], card: Card
       if (rule.operator === 'is_empty') return !source
       if (rule.operator === 'equals') return source.toLocaleLowerCase() === target.toLocaleLowerCase()
       if (rule.operator === 'not_equals') return Boolean(source) && source.toLocaleLowerCase() !== target.toLocaleLowerCase()
+      if (rule.operator === 'greater_than' || rule.operator === 'less_than') {
+        const sourceNumber = Number(source)
+        const targetNumber = Number(target)
+        if (!source.trim() || !target.trim() || !Number.isFinite(sourceNumber) || !Number.isFinite(targetNumber)) return false
+        return rule.operator === 'greater_than' ? sourceNumber > targetNumber : sourceNumber < targetNumber
+      }
       return Boolean(target) && source.toLocaleLowerCase().includes(target.toLocaleLowerCase())
     })
     writeValue(column.fieldId, matched ? matched.value : fallback)
