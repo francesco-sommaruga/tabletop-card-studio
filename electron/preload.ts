@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Card, ColumnDefinition, GitCommitFile, GitStatus, ImportPlan, MarkdownDocument, ProjectSnapshot, ProjectAsset, ProjectIconReference, ProjectSummary, ProjectVariable, WorkbookInfo, WorkbookMergePreview } from '../src/types'
+import type { Card, ColumnDefinition, GitCommitFile, GitHubAuthStatus, GitHubDeviceLogin, GitHubLoginPollResult, GitHubProjectRepository, GitHubRepositoryResult, GitStatus, ImportPlan, MarkdownDocument, ProjectSnapshot, ProjectAsset, ProjectIconReference, ProjectSummary, ProjectVariable, WorkbookInfo, WorkbookMergePreview } from '../src/types'
 
 contextBridge.exposeInMainWorld('cardCms', {
   onNotice: (callback: (message: string) => void) => {
@@ -43,6 +43,17 @@ contextBridge.exposeInMainWorld('cardCms', {
   gitSwitchBranch: (name: string) => ipcRenderer.invoke('git:branch-switch', name) as Promise<GitStatus>,
   gitCreateBranch: (name: string, commit?: string) => ipcRenderer.invoke('git:branch-create', name, commit) as Promise<GitStatus>,
   gitDeleteBranch: (name: string) => ipcRenderer.invoke('git:branch-delete', name) as Promise<GitStatus>,
+  githubAuthStatus: () => ipcRenderer.invoke('github:auth-status') as Promise<GitHubAuthStatus>,
+  githubStartLogin: () => ipcRenderer.invoke('github:login-start') as Promise<GitHubDeviceLogin>,
+  githubPollLogin: () => ipcRenderer.invoke('github:login-poll') as Promise<GitHubLoginPollResult>,
+  githubCancelLogin: () => ipcRenderer.invoke('github:login-cancel') as Promise<void>,
+  githubLogout: () => ipcRenderer.invoke('github:logout') as Promise<GitHubAuthStatus>,
+  githubCreateRepository: (name: string, isPrivate: boolean) => ipcRenderer.invoke('github:repo-create', name, isPrivate) as Promise<GitHubRepositoryResult>,
+  githubListProjectRepositories: () => ipcRenderer.invoke('github:project-repos-list') as Promise<GitHubProjectRepository[]>,
+  githubCloneProjectRepository: (fullName: string) => ipcRenderer.invoke('github:project-repo-clone', fullName) as Promise<ProjectSnapshot | null>,
+  openGitHubDeviceLogin: () => ipcRenderer.invoke('github:login-open') as Promise<void>,
+  openGitHubAppInstall: () => ipcRenderer.invoke('github:install-open') as Promise<void>,
+  openGitHubRepository: (url: string) => ipcRenderer.invoke('github:repository-open', url) as Promise<void>,
   gitCommitFiles: (hash: string) => ipcRenderer.invoke('git:commit-files', hash) as Promise<string[]>,
   gitCommitFile: (hash: string, file: string) => ipcRenderer.invoke('git:commit-file', hash, file) as Promise<GitCommitFile>,
   markdownList: () => ipcRenderer.invoke('markdown:list') as Promise<string[]>,

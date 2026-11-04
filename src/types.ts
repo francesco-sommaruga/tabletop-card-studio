@@ -208,6 +208,48 @@ export interface GitStatus {
   error: string
 }
 
+export interface GitHubAuthStatus {
+  configured: boolean
+  authenticated: boolean
+  login: string
+  avatarUrl: string
+  appInstalled: boolean
+  error?: string
+}
+
+export interface GitHubDeviceLogin {
+  userCode: string
+  verificationUri: string
+  intervalSeconds: number
+  expiresAt: number
+}
+
+export type GitHubLoginPollResult =
+  | { status: 'pending'; intervalSeconds?: number }
+  | { status: 'complete'; auth: GitHubAuthStatus }
+  | { status: 'expired' }
+
+export interface GitHubRepositoryResult {
+  name: string
+  htmlUrl: string
+  isPrivate: boolean
+  pushed: boolean
+  warning: string
+  status: GitStatus
+}
+
+export interface GitHubProjectRepository {
+  id: number
+  name: string
+  fullName: string
+  description: string
+  htmlUrl: string
+  isPrivate: boolean
+  updatedAt: string
+  avatarUrl: string
+  projectType: 'Tabletop Creator' | 'Card Studio' | 'Foglio Excel'
+}
+
 export interface ProjectSnapshot {
   projectPath: string
   projectName: string
@@ -253,6 +295,17 @@ export interface CardCmsApi {
   gitSwitchBranch: (name: string) => Promise<GitStatus>
   gitCreateBranch: (name: string, commit?: string) => Promise<GitStatus>
   gitDeleteBranch: (name: string) => Promise<GitStatus>
+  githubAuthStatus: () => Promise<GitHubAuthStatus>
+  githubStartLogin: () => Promise<GitHubDeviceLogin>
+  githubPollLogin: () => Promise<GitHubLoginPollResult>
+  githubCancelLogin: () => Promise<void>
+  githubLogout: () => Promise<GitHubAuthStatus>
+  githubCreateRepository: (name: string, isPrivate: boolean) => Promise<GitHubRepositoryResult>
+  githubListProjectRepositories: () => Promise<GitHubProjectRepository[]>
+  githubCloneProjectRepository: (fullName: string) => Promise<ProjectSnapshot | null>
+  openGitHubDeviceLogin: () => Promise<void>
+  openGitHubAppInstall: () => Promise<void>
+  openGitHubRepository: (url: string) => Promise<void>
   gitCommitFiles: (hash: string) => Promise<string[]>
   gitCommitFile: (hash: string, file: string) => Promise<GitCommitFile>
   markdownList: () => Promise<string[]>

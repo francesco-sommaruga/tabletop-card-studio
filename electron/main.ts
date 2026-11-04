@@ -1,12 +1,13 @@
-import { app, BrowserWindow, dialog, ipcMain, nativeImage, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeImage, safeStorage, shell } from 'electron'
 import { execFile } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
 import ExcelJS from 'exceljs'
-import type { Card, ColumnDefinition, GitCommitFile, GitCommitSummary, GitFileStatus, GitStatus, ImportPlan, MarkdownDocument, MergeFieldChange, MergeFieldConflict, NativeSetInfo, ProjectAsset, ProjectIconReference, ProjectSet, ProjectSnapshot, ProjectSummary, ProjectVariable, TabletopBlueprint, WorkbookInfo, WorkbookMergePreview } from '../src/types'
+import type { Card, ColumnDefinition, GitCommitFile, GitCommitSummary, GitFileStatus, GitHubAuthStatus, GitHubDeviceLogin, GitHubLoginPollResult, GitHubProjectRepository, GitStatus, ImportPlan, MarkdownDocument, MergeFieldChange, MergeFieldConflict, NativeSetInfo, ProjectAsset, ProjectIconReference, ProjectSet, ProjectSnapshot, ProjectSummary, ProjectVariable, TabletopBlueprint, WorkbookInfo, WorkbookMergePreview } from '../src/types'
 import { resolveConditionalValues } from '../src/conditional'
+import { GITHUB_APP_CLIENT_ID, GITHUB_APP_SLUG } from './github-config'
 
 let win: BrowserWindow | null = null
 let activeProject = ''
@@ -22,6 +23,7 @@ let diagnosticQueue: Promise<void> = Promise.resolve()
 const notifiedNativeSyncSkips = new Set<string>()
 let iconCatalogCache: { projectPath: string; roots: string; icons: ProjectIconReference[] } | null = null
 const pendingMerges = new Map<string, { setId: string; matchFieldId: string; incoming: Card[]; selectedFieldIds: string[]; baselineFieldIds: string[]; restoreColumns: ColumnDefinition[] }>()
+let pendingGithubLogin: { deviceCode: string; intervalSeconds: number; nextPollAt: number; expiresAt: number } | null = null
 const dataDirName = '.tabletop-card-studio'
 const defaultColumns: ColumnDefinition[] = [
   { id: 'column_title', header: 'title', fieldId: 'meta_title', type: 'text' },
@@ -850,6 +852,15 @@ function synchronizeBlueprintFields(blueprintName: string, preferredColumns?: Co
   return columns
 }
 
+function replaceBlueprintFields(blueprintName: string, columns: ColumnDefinition[]): ColumnDefinition[] {
+  const groupedSets = sets.filter((set) => set.blueprintName === blueprintName)
+  for (const set of groupedSets) {
+    set.columns = structuredClone(columns)
+    set.cards = set.cards.map((card) => hydrateNativeValues(card, columns))
+  }
+  return columns
+}
+
 function normalizeBlueprintFieldSets(): boolean {
   const before = JSON.stringify(sets)
   for (const set of sets) {
@@ -1309,9 +1320,13 @@ async function listProjects(): Promise<ProjectSummary[]> {
   return result
 }
 
-function runGit(args: string[]): Promise<{ stdout: string; stderr: string }> {
+function runGit(args: string[], env?: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
+  return runGitAt(activeProject, args, env)
+}
+
+function runGitAt(cwd: string, args: string[], env?: NodeJS.ProcessEnv, timeout = 45_000): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd: activeProject, timeout: 45_000, maxBuffer: 2 * 1024 * 1024 }, (error, stdout, stderr) => {
+    execFile('git', args, { cwd, env: env ?? process.env, timeout, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (error) {
         const detail = stderr.trim() || stdout.trim() || error.message
         reject(new Error(detail))
@@ -1325,7 +1340,463 @@ function githubWebUrl(remote: string) {
   if (https) return `https://github.com/${https[1].replace(/\.git$/i, '')}`
   const ssh = remote.match(/^git@github\.com:([^\s]+?)(?:\.git)?$/i)
   if (ssh) return `https://github.com/${ssh[1].replace(/\.git$/i, '')}`
+  const sshProtocol = remote.match(/^ssh:\/\/git@github\.com\/([^\s]+?)(?:\.git)?\/?$/i)
+  if (sshProtocol) return `https://github.com/${sshProtocol[1].replace(/\.git$/i, '')}`
   return ''
+}
+
+interface StoredGitHubCredential {
+  accessToken: string
+  accessTokenExpiresAt: number
+  refreshToken: string
+  refreshTokenExpiresAt: number
+  userId: number
+  login: string
+  avatarUrl: string
+}
+
+interface GitHubApiInstallation {
+  id: number
+  app_slug?: string
+}
+
+interface GitHubApiRepository {
+  id: number
+  name: string
+  full_name: string
+  clone_url: string
+  html_url: string
+  private: boolean
+  description?: string | null
+  updated_at: string
+  default_branch: string
+  owner?: { login?: string; avatar_url?: string }
+}
+
+class GitHubApiError extends Error {
+  constructor(message: string, readonly status: number) { super(message) }
+}
+
+const githubProjectTypeCache = new Map<number, { updatedAt: string; type: GitHubProjectRepository['projectType'] | null }>()
+
+async function githubApiRequest(url: string, accessToken: string) {
+  const response = await fetch(url, {
+    headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${accessToken}`, 'User-Agent': 'Tabletop Card Studio', 'X-GitHub-Api-Version': '2022-11-28' },
+  })
+  if (!response.ok) {
+    let message = ''
+    try { message = String((await response.json() as { message?: unknown }).message ?? '') } catch { /* response may not be JSON */ }
+    throw new GitHubApiError(message || `GitHub ha restituito HTTP ${response.status}.`, response.status)
+  }
+  return response
+}
+
+async function githubApiCollection<T>(url: string, accessToken: string, collectionKey: string): Promise<T[]> {
+  const items: T[] = []
+  let nextUrl: string | undefined = url
+  while (nextUrl) {
+    const response = await githubApiRequest(nextUrl, accessToken)
+    const payload = await response.json() as Record<string, unknown>
+    const page = payload[collectionKey]
+    if (!Array.isArray(page)) throw new Error(`La risposta di GitHub non contiene l'elenco ${collectionKey}.`)
+    items.push(...page as T[])
+    nextUrl = response.headers.get('link')?.split(',').map((entry) => entry.trim()).find((entry) => /rel="next"/.test(entry))?.match(/<([^>]+)>/)?.[1]
+  }
+  return items
+}
+
+async function githubInstalledRepositories(accessToken: string): Promise<GitHubApiRepository[]> {
+  const installations = await githubApiCollection<GitHubApiInstallation>('https://api.github.com/user/installations?per_page=100', accessToken, 'installations')
+  const appInstallations = installations.filter((installation) => installation.app_slug?.toLocaleLowerCase() === GITHUB_APP_SLUG.toLocaleLowerCase() && Number.isInteger(installation.id))
+  const repositoryPages = await Promise.all(appInstallations.map((installation) => githubApiCollection<GitHubApiRepository>(`https://api.github.com/user/installations/${installation.id}/repositories?per_page=100`, accessToken, 'repositories')))
+  const repositories = new Map<number, GitHubApiRepository>()
+  for (const page of repositoryPages) for (const repository of page) repositories.set(repository.id, repository)
+  return [...repositories.values()]
+}
+
+function githubProjectTypeFromPaths(paths: string[]): GitHubProjectRepository['projectType'] | null {
+  const files = paths.map((file) => file.toLocaleLowerCase())
+  if (files.some((file) => /^\.tabletop-card-studio\/(?:sets\.json|sets\/index\.json|cards\.json)$/.test(file))) return 'Card Studio'
+  if (files.some((file) => /^data\/(?:sets|blueprints)\/[^/]+\.json$/.test(file) || file === 'data/variables.json')) return 'Tabletop Creator'
+  if (files.some((file) => !file.includes('/') && /\.xlsx$/i.test(file) && !file.startsWith('~$') && !/-cms-export\.xlsx$/i.test(file))) return 'Foglio Excel'
+  return null
+}
+
+async function githubRepositoryProjectType(repository: GitHubApiRepository, accessToken: string): Promise<GitHubProjectRepository['projectType'] | null> {
+  const cached = githubProjectTypeCache.get(repository.id)
+  if (cached?.updatedAt === repository.updated_at) return cached.type
+  if (!repository.owner?.login || !repository.default_branch) return null
+  try {
+    const owner = encodeURIComponent(repository.owner.login)
+    const name = encodeURIComponent(repository.name)
+    const branch = encodeURIComponent(repository.default_branch)
+    const response = await githubApiRequest(`https://api.github.com/repos/${owner}/${name}/git/trees/${branch}?recursive=1`, accessToken)
+    const payload = await response.json() as { tree?: Array<{ path?: string; type?: string }> }
+    const type = githubProjectTypeFromPaths((payload.tree ?? []).filter((item) => item.type === 'blob' && typeof item.path === 'string').map((item) => item.path!))
+    githubProjectTypeCache.set(repository.id, { updatedAt: repository.updated_at, type })
+    return type
+  } catch (error) {
+    if (error instanceof GitHubApiError && error.status === 404) {
+      githubProjectTypeCache.set(repository.id, { updatedAt: repository.updated_at, type: null })
+      return null
+    }
+    throw error
+  }
+}
+
+async function localGitHubRepositoryUrls(): Promise<Set<string>> {
+  const urls = new Set<string>()
+  const projects = await listProjects()
+  const remotes = await Promise.all(projects.map(async (project) => {
+    try { return (await runGitAt(project.path, ['config', '--get', 'remote.origin.url'], undefined, 8_000)).stdout }
+    catch { return '' }
+  }))
+  for (const remote of remotes) {
+    const url = githubWebUrl(remote)
+    if (url) urls.add(url.toLocaleLowerCase())
+  }
+  return urls
+}
+
+async function listGitHubProjectRepositories(): Promise<GitHubProjectRepository[]> {
+  const credential = await getFreshGithubCredential()
+  if (!credential) throw new Error('Accedi a GitHub dall’app per trovare i tuoi progetti.')
+  const repositories = await githubInstalledRepositories(credential.accessToken)
+  const localUrls = await localGitHubRepositoryUrls()
+  const candidates = repositories.filter((repository) => {
+    const url = githubWebUrl(repository.html_url)
+    return url && !localUrls.has(url.toLocaleLowerCase())
+  })
+  const classified: Array<{ repository: GitHubApiRepository; type: GitHubProjectRepository['projectType'] | null }> = []
+  for (let offset = 0; offset < candidates.length; offset += 4) {
+    const batch = await Promise.all(candidates.slice(offset, offset + 4).map(async (repository) => ({ repository, type: await githubRepositoryProjectType(repository, credential.accessToken) })))
+    classified.push(...batch)
+  }
+  return classified.filter((item): item is { repository: GitHubApiRepository; type: GitHubProjectRepository['projectType'] } => item.type !== null).map(({ repository, type }) => ({
+    id: repository.id,
+    name: repository.name,
+    fullName: repository.full_name,
+    description: repository.description ?? '',
+    htmlUrl: repository.html_url,
+    isPrivate: repository.private,
+    updatedAt: repository.updated_at,
+    avatarUrl: repository.owner?.avatar_url ?? '',
+    projectType: type,
+  })).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+}
+
+interface GitHubOAuthResponse {
+  device_code?: string
+  user_code?: string
+  verification_uri?: string
+  interval?: number
+  access_token?: string
+  expires_in?: number
+  refresh_token?: string
+  refresh_token_expires_in?: number
+  error?: string
+  error_description?: string
+}
+
+function githubCredentialPath() { return path.join(app.getPath('userData'), 'github-auth.json') }
+
+async function ensureGithubSecureStorage() {
+  if (!await safeStorage.isAsyncEncryptionAvailable()) throw new Error('La cassaforte delle credenziali di sistema non è disponibile. Verifica che il portachiavi sia attivo e riprova.')
+  if (process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text') throw new Error('Card Studio non trova un portachiavi sicuro. Attiva GNOME Keyring o KWallet e riprova.')
+}
+
+async function readGithubCredential(): Promise<StoredGitHubCredential | null> {
+  const file = githubCredentialPath()
+  if (!existsSync(file)) return null
+  await ensureGithubSecureStorage()
+  const document = JSON.parse(await fs.readFile(file, 'utf8')) as { encrypted?: string }
+  if (!document.encrypted) throw new Error('Le credenziali GitHub salvate non sono valide. Esci e accedi di nuovo.')
+  const { result } = await safeStorage.decryptStringAsync(Buffer.from(document.encrypted, 'base64'))
+  const credential = JSON.parse(result) as StoredGitHubCredential
+  if (!credential.accessToken || !credential.login) throw new Error('Le credenziali GitHub salvate non sono valide. Esci e accedi di nuovo.')
+  return credential
+}
+
+async function saveGithubCredential(credential: StoredGitHubCredential) {
+  await ensureGithubSecureStorage()
+  const encrypted = await safeStorage.encryptStringAsync(JSON.stringify(credential))
+  const file = githubCredentialPath()
+  const temporaryFile = `${file}.${crypto.randomUUID()}.tmp`
+  await fs.writeFile(temporaryFile, JSON.stringify({ encrypted: encrypted.toString('base64') }), { mode: 0o600 })
+  await fs.rename(temporaryFile, file)
+}
+
+async function githubAuthStatus(): Promise<GitHubAuthStatus> {
+  const status: GitHubAuthStatus = { configured: Boolean(GITHUB_APP_CLIENT_ID.trim() && GITHUB_APP_SLUG.trim()), authenticated: false, login: '', avatarUrl: '', appInstalled: false }
+  if (!status.configured) return status
+  let credential: StoredGitHubCredential | null
+  try {
+    credential = await getFreshGithubCredential()
+  } catch (error) {
+    return { ...status, error: error instanceof Error ? error.message : String(error) }
+  }
+  if (!credential) return status
+  const accountStatus = { ...status, authenticated: true, login: credential.login, avatarUrl: credential.avatarUrl }
+  try {
+    const response = await fetch('https://api.github.com/user/installations?per_page=100', {
+      headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${credential.accessToken}`, 'User-Agent': 'Tabletop Card Studio' },
+    })
+    if (!response.ok) throw new Error('Non riesco a verificare se Tabletop Card Studio è installata sul tuo account GitHub.')
+    const installations = await response.json() as { installations?: Array<{ app_slug?: string; account?: { login?: string } }> }
+    const remote = activeProject ? await runGit(['config', '--get', 'remote.origin.url']).catch(() => ({ stdout: '', stderr: '' })) : { stdout: '', stderr: '' }
+    const repositoryUrl = githubWebUrl(remote.stdout)
+    const targetAccount = repositoryUrl ? new URL(repositoryUrl).pathname.split('/')[1] : credential.login
+    const appInstalled = Boolean(installations.installations?.some((installation) => installation.app_slug === GITHUB_APP_SLUG && installation.account?.login?.toLocaleLowerCase() === targetAccount.toLocaleLowerCase()))
+    return { ...accountStatus, appInstalled }
+  } catch (error) {
+    return { ...accountStatus, error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+async function startGithubLogin(): Promise<GitHubDeviceLogin> {
+  if (!GITHUB_APP_CLIENT_ID.trim() || !GITHUB_APP_SLUG.trim()) throw new Error('Questa versione non è ancora configurata per l’accesso GitHub. Mancano Client ID e slug della GitHub App.')
+  await ensureGithubSecureStorage()
+  const response = await fetch('https://github.com/login/device/code', {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Tabletop Card Studio' },
+    body: new URLSearchParams({ client_id: GITHUB_APP_CLIENT_ID.trim(), scope: 'offline_access' }),
+  })
+  const payload = await response.json() as GitHubOAuthResponse
+  if (!response.ok || !payload.device_code || !payload.user_code || !payload.verification_uri || !payload.expires_in) {
+    throw new Error(payload.error_description || payload.error || 'GitHub non ha avviato l’accesso. Riprova tra poco.')
+  }
+  const intervalSeconds = Math.max(5, payload.interval ?? 5)
+  const expiresAt = Date.now() + payload.expires_in * 1000
+  pendingGithubLogin = { deviceCode: payload.device_code, intervalSeconds, nextPollAt: Date.now() + intervalSeconds * 1000, expiresAt }
+  return { userCode: payload.user_code, verificationUri: payload.verification_uri, intervalSeconds, expiresAt }
+}
+
+async function pollGithubLogin(): Promise<GitHubLoginPollResult> {
+  const pending = pendingGithubLogin
+  if (!pending || Date.now() >= pending.expiresAt) { pendingGithubLogin = null; return { status: 'expired' } }
+  if (Date.now() < pending.nextPollAt) return { status: 'pending' }
+  pending.nextPollAt = Date.now() + pending.intervalSeconds * 1000
+  const response = await fetch('https://github.com/login/oauth/access_token', {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Tabletop Card Studio' },
+    body: new URLSearchParams({ client_id: GITHUB_APP_CLIENT_ID.trim(), device_code: pending.deviceCode, grant_type: 'urn:ietf:params:oauth:grant-type:device_code' }),
+  })
+  const payload = await response.json() as GitHubOAuthResponse
+  if (!response.ok) throw new Error(payload.error_description || payload.error || 'GitHub non ha completato l’accesso.')
+  if (pendingGithubLogin !== pending) return { status: 'expired' }
+  if (payload.error === 'authorization_pending') return { status: 'pending' }
+  if (payload.error === 'slow_down') { pending.intervalSeconds += 5; pending.nextPollAt = Date.now() + pending.intervalSeconds * 1000; return { status: 'pending', intervalSeconds: pending.intervalSeconds } }
+  if (payload.error === 'expired_token' || payload.error === 'access_denied') { pendingGithubLogin = null; return { status: 'expired' } }
+  if (!payload.access_token) {
+    if (payload.error) { pendingGithubLogin = null; throw new Error(payload.error_description || payload.error) }
+    return { status: 'pending' }
+  }
+  const profileResponse = await fetch('https://api.github.com/user', {
+    headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${payload.access_token}`, 'User-Agent': 'Tabletop Card Studio' },
+  })
+  if (!profileResponse.ok) { pendingGithubLogin = null; throw new Error('GitHub ha autorizzato l’app, ma non è stato possibile leggere il nome dell’account.') }
+  const profile = await profileResponse.json() as { id?: number; login?: string; avatar_url?: string }
+  if (pendingGithubLogin !== pending) return { status: 'expired' }
+  if (!profile.login || !profile.id) { pendingGithubLogin = null; throw new Error('GitHub ha restituito un profilo incompleto.') }
+  await saveGithubCredential({
+    accessToken: payload.access_token,
+    accessTokenExpiresAt: payload.expires_in ? Date.now() + payload.expires_in * 1000 : Number.MAX_SAFE_INTEGER,
+    refreshToken: payload.refresh_token ?? '',
+    refreshTokenExpiresAt: payload.refresh_token_expires_in ? Date.now() + payload.refresh_token_expires_in * 1000 : Number.MAX_SAFE_INTEGER,
+    userId: profile.id,
+    login: profile.login,
+    avatarUrl: profile.avatar_url ?? '',
+  })
+  pendingGithubLogin = null
+  return { status: 'complete', auth: await githubAuthStatus() }
+}
+
+async function getFreshGithubCredential(): Promise<StoredGitHubCredential | null> {
+  const credential = await readGithubCredential()
+  if (!credential) return null
+  if (credential.accessTokenExpiresAt > Date.now() + 60_000) return credential
+  if (!credential.refreshToken || credential.refreshTokenExpiresAt <= Date.now()) {
+    await fs.rm(githubCredentialPath(), { force: true })
+    throw new Error('La sessione GitHub è scaduta. Accedi di nuovo dall’app.')
+  }
+  const response = await fetch('https://github.com/login/oauth/access_token', {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Tabletop Card Studio' },
+    body: new URLSearchParams({ client_id: GITHUB_APP_CLIENT_ID.trim(), grant_type: 'refresh_token', refresh_token: credential.refreshToken }),
+  })
+  const payload = await response.json() as GitHubOAuthResponse
+  if (!response.ok || !payload.access_token) {
+    if (payload.error === 'bad_refresh_token' || payload.error === 'invalid_grant') await fs.rm(githubCredentialPath(), { force: true })
+    throw new Error(payload.error_description || (payload.error ? `GitHub: ${payload.error}` : 'Non riesco a rinnovare la sessione GitHub. Accedi di nuovo.'))
+  }
+  const refreshed: StoredGitHubCredential = {
+    ...credential,
+    accessToken: payload.access_token,
+    accessTokenExpiresAt: payload.expires_in ? Date.now() + payload.expires_in * 1000 : Number.MAX_SAFE_INTEGER,
+    refreshToken: payload.refresh_token ?? credential.refreshToken,
+    refreshTokenExpiresAt: payload.refresh_token_expires_in ? Date.now() + payload.refresh_token_expires_in * 1000 : credential.refreshTokenExpiresAt,
+  }
+  await saveGithubCredential(refreshed)
+  return refreshed
+}
+
+async function cancelGithubLogin() { pendingGithubLogin = null }
+
+async function logoutGithub() {
+  pendingGithubLogin = null
+  await fs.rm(githubCredentialPath(), { force: true })
+  return githubAuthStatus()
+}
+
+async function openGitHubAppInstall() {
+  if (!/^[a-z\d-]+$/i.test(GITHUB_APP_SLUG)) throw new Error('Lo slug della GitHub App non è configurato correttamente.')
+  await shell.openExternal(`https://github.com/apps/${GITHUB_APP_SLUG}/installations/new`)
+}
+
+async function openGitHubRepository(url: string) {
+  let parsed: URL
+  try { parsed = new URL(url) } catch { throw new Error('Indirizzo repository GitHub non valido.') }
+  if (parsed.protocol !== 'https:' || parsed.hostname !== 'github.com' || parsed.port || parsed.username || parsed.password || !/^\/[\w.-]+\/[\w.-]+\/?$/.test(parsed.pathname)) {
+    throw new Error('Indirizzo repository GitHub non valido.')
+  }
+  await shell.openExternal(parsed.toString())
+}
+
+async function createGitHubRepository(name: string, isPrivate: boolean): Promise<import('../src/types').GitHubRepositoryResult> {
+  if (!activeProject) throw new Error('Apri un progetto prima di creare un repository GitHub.')
+  const repoName = String(name ?? '').trim()
+  if (!/^[A-Za-z0-9._-]{1,100}$/.test(repoName) || repoName === '.' || repoName === '..') throw new Error('Usa un nome repository di massimo 100 caratteri: lettere, numeri, punti, trattini o underscore.')
+  if (typeof isPrivate !== 'boolean') throw new Error('Scegli se il repository deve essere privato.')
+  const credential = await getFreshGithubCredential()
+  if (!credential) throw new Error('Accedi a GitHub dall’app prima di creare il repository.')
+
+  let localRepoExists = false
+  try { await runGit(['rev-parse', '--is-inside-work-tree']); localRepoExists = true } catch { /* repository locale non inizializzato */ }
+  if (localRepoExists) {
+    const existingRemote = await runGit(['config', '--get', 'remote.origin.url']).catch(() => ({ stdout: '', stderr: '' }))
+    if (existingRemote.stdout) throw new Error('Questo progetto ha già un remote origin. Rimuovilo o usa la funzione di collegamento esistente.')
+  }
+
+  const response = await fetch('https://api.github.com/user/repos', {
+    method: 'POST',
+    headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${credential.accessToken}`, 'Content-Type': 'application/json', 'User-Agent': 'Tabletop Card Studio' },
+    body: JSON.stringify({ name: repoName, private: isPrivate, auto_init: false }),
+  })
+  const payload = await response.json() as { name?: string; html_url?: string; clone_url?: string; private?: boolean; message?: string; errors?: Array<{ message?: string }> }
+  if (!response.ok || !payload.clone_url || !payload.html_url || !payload.name) {
+    const detail = payload.errors?.map((error) => error.message).filter(Boolean).join(' ') || payload.message
+    throw new Error(detail || 'GitHub non è riuscito a creare il repository.')
+  }
+
+  let pushed = false
+  let warning = ''
+  try {
+    if (!localRepoExists) {
+      try { await runGit(['init', '--initial-branch=main']) }
+      catch { await runGit(['init']); await runGit(['symbolic-ref', 'HEAD', 'refs/heads/main']) }
+    }
+    await runGit(['remote', 'add', 'origin', payload.clone_url])
+    let hasCommit = false
+    try { await runGit(['rev-parse', '--verify', 'HEAD']); hasCommit = true } catch { /* primo commit da creare */ }
+    let branch = (await runGit(['branch', '--show-current'])).stdout
+    if (!branch) {
+      if (hasCommit) await runGit(['switch', '-c', 'main'])
+      else await runGit(['symbolic-ref', 'HEAD', 'refs/heads/main'])
+      branch = 'main'
+    }
+    const ensureLocalGitAuthor = async () => {
+      try { await runGit(['config', '--get', 'user.name']) } catch { await runGit(['config', '--local', 'user.name', credential.login]) }
+      try { await runGit(['config', '--get', 'user.email']) } catch { await runGit(['config', '--local', 'user.email', `${credential.userId}+${credential.login}@users.noreply.github.com`]) }
+    }
+    if (!hasCommit) {
+      const changes = await runGit(['status', '--porcelain=v1'])
+      if (changes.stdout) {
+        await ensureLocalGitAuthor()
+        await runGit(['add', '-A'])
+        await runGit(['commit', '-m', 'Primo commit da Tabletop Card Studio'])
+        hasCommit = true
+      }
+    } else {
+      const changes = await runGit(['status', '--porcelain=v1'])
+      if (changes.stdout) {
+        await ensureLocalGitAuthor()
+        await runGit(['add', '-A'])
+        await runGit(['commit', '-m', 'Aggiornamento progetto da Tabletop Card Studio'])
+      }
+    }
+    if (hasCommit) { await runGithubAuthenticatedGit(['push', '--set-upstream', 'origin', branch]); pushed = true }
+    else warning = 'Repository creato e collegato, ma la cartella non contiene file da caricare.'
+  } catch (error) {
+    warning = error instanceof Error ? error.message : String(error)
+  }
+  return { name: payload.name, htmlUrl: payload.html_url, isPrivate: payload.private ?? isPrivate, pushed, warning, status: await readGitStatus() }
+}
+
+async function cloneGitHubProjectRepository(fullName: string): Promise<ProjectSnapshot | null> {
+  if (typeof fullName !== 'string' || !/^[\w.-]+\/[\w.-]+$/.test(fullName)) throw new Error('Repository GitHub non valido.')
+  const credential = await getFreshGithubCredential()
+  if (!credential) throw new Error('Accedi a GitHub dall’app prima di scaricare un progetto.')
+  const repositories = await githubInstalledRepositories(credential.accessToken)
+  const repository = repositories.find((item) => item.full_name.toLocaleLowerCase() === fullName.toLocaleLowerCase())
+  if (!repository) throw new Error('La repository non è più accessibile a Card Studio. Aggiorna l’elenco e verifica l’installazione dell’app.')
+  const projectType = await githubRepositoryProjectType(repository, credential.accessToken)
+  if (!projectType) throw new Error('La repository non contiene un progetto Tabletop Creator, dati Card Studio o un foglio Excel supportato.')
+  const cloneUrl = new URL(repository.clone_url)
+  if (cloneUrl.protocol !== 'https:' || cloneUrl.hostname !== 'github.com' || cloneUrl.username || cloneUrl.password) throw new Error('GitHub ha restituito un indirizzo di clone non valido.')
+
+  const picked = await dialog.showOpenDialog(win!, { title: `Scegli dove scaricare ${repository.full_name}`, defaultPath: app.getPath('documents'), properties: ['openDirectory', 'createDirectory'] })
+  if (picked.canceled || !picked.filePaths[0]) return null
+  const parent = path.resolve(picked.filePaths[0])
+  const parentStat = await fs.stat(parent).catch(() => null)
+  if (!parentStat?.isDirectory()) throw new Error('La cartella scelta non è disponibile.')
+  if (!/^[A-Za-z0-9._-]{1,100}$/.test(repository.name) || repository.name === '.' || repository.name === '..') throw new Error('Il nome della repository non è valido come cartella locale.')
+  const destination = path.join(parent, repository.name)
+  if (existsSync(destination)) throw new Error(`Esiste già una cartella chiamata “${repository.name}” nella posizione scelta. Scegli un’altra cartella.`)
+  const temporaryDestination = path.join(parent, `.${repository.name}.card-studio-${randomUUID()}.tmp`)
+
+  const authHeader = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${credential.accessToken}`, 'utf8').toString('base64')}`
+  const config: Array<[string, string]> = [['credential.helper', ''], ['credential.interactive', 'never'], ['http.https://github.com/.extraheader', authHeader]]
+  const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_COUNT: String(config.length), GIT_TERMINAL_PROMPT: '0' }
+  config.forEach(([key, value], index) => { env[`GIT_CONFIG_KEY_${index}`] = key; env[`GIT_CONFIG_VALUE_${index}`] = value })
+  try {
+    await runGitAt(parent, ['clone', '--quiet', '--', repository.clone_url, temporaryDestination], env, 30 * 60_000)
+  } catch (error) {
+    await fs.rm(temporaryDestination, { recursive: true, force: true }).catch(() => undefined)
+    throw new Error(error instanceof Error ? `Download non riuscito: ${error.message}` : 'Download della repository non riuscito.')
+  }
+  if (existsSync(destination)) {
+    await fs.rm(temporaryDestination, { recursive: true, force: true })
+    throw new Error(`Nel frattempo è stata creata una cartella chiamata “${repository.name}”. Scegli un’altra cartella.`)
+  }
+  try { await fs.rename(temporaryDestination, destination) }
+  catch (error) {
+    await fs.rm(temporaryDestination, { recursive: true, force: true }).catch(() => undefined)
+    throw new Error(error instanceof Error ? `Impossibile completare il download: ${error.message}` : 'Impossibile completare il download.')
+  }
+  return openProject(destination)
+}
+
+async function runGithubAuthenticatedGit(args: string[]) {
+  const remote = (await runGit(['config', '--get', 'remote.origin.url'])).stdout
+  if (/^http:\/\//i.test(remote)) throw new Error('Per sincronizzare con GitHub, imposta il remote origin in HTTPS sicuro o SSH.')
+  if (!githubWebUrl(remote)) throw new Error('Per usare l’accesso dell’app, origin deve puntare a github.com tramite HTTPS o SSH.')
+  const auth = await githubAuthStatus()
+  if (!auth.authenticated) throw new Error(auth.error || 'Accedi a GitHub dall’app prima di usare Pull o Push.')
+  if (auth.error) throw new Error(auth.error)
+  if (!auth.appInstalled) throw new Error('Installa Tabletop Card Studio sul tuo account GitHub e concedigli accesso a questo repository.')
+  const credential = await getFreshGithubCredential()
+  if (!credential) throw new Error('Accedi a GitHub dall’app prima di usare Pull o Push.')
+  const authHeader = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${credential.accessToken}`, 'utf8').toString('base64')}`
+  const config: Array<[string, string]> = [
+    ['credential.helper', ''],
+    ['credential.interactive', 'never'],
+    ['http.https://github.com/.extraheader', authHeader],
+    ['url.https://github.com/.insteadOf', 'git@github.com:'],
+    ['url.https://github.com/.insteadOf', 'ssh://git@github.com/'],
+  ]
+  const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_COUNT: String(config.length), GIT_TERMINAL_PROMPT: '0' }
+  config.forEach(([key, value], index) => { env[`GIT_CONFIG_KEY_${index}`] = key; env[`GIT_CONFIG_VALUE_${index}`] = value })
+  return runGit(args, env)
 }
 
 async function readGitStatus(): Promise<GitStatus> {
@@ -1402,6 +1873,17 @@ app.whenReady().then(() => {
     return snapshot()
   })
   ipcMain.handle('git:status', readGitStatus)
+  ipcMain.handle('github:auth-status', githubAuthStatus)
+  ipcMain.handle('github:login-start', () => startGithubLogin())
+  ipcMain.handle('github:login-poll', () => pollGithubLogin())
+  ipcMain.handle('github:login-cancel', () => cancelGithubLogin())
+  ipcMain.handle('github:logout', () => logoutGithub())
+  ipcMain.handle('github:repo-create', (_event, name: string, isPrivate: boolean) => createGitHubRepository(name, isPrivate))
+  ipcMain.handle('github:project-repos-list', listGitHubProjectRepositories)
+  ipcMain.handle('github:project-repo-clone', (_event, fullName: string) => cloneGitHubProjectRepository(fullName))
+  ipcMain.handle('github:login-open', () => shell.openExternal('https://github.com/login/device'))
+  ipcMain.handle('github:install-open', openGitHubAppInstall)
+  ipcMain.handle('github:repository-open', (_event, url: string) => openGitHubRepository(url))
   ipcMain.handle('git:init', () => gitAction(async () => { await runGit(['init']) }))
   ipcMain.handle('git:connect', (_event, remoteUrl: string) => gitAction(async () => {
     const trimmed = remoteUrl.trim()
@@ -1416,11 +1898,11 @@ app.whenReady().then(() => {
     await runGit(['add', '-A'])
     await runGit(['commit', '-m', message.trim()])
   }))
-  ipcMain.handle('git:pull', () => gitAction(async () => { await runGit(['pull', '--ff-only']) }))
+  ipcMain.handle('git:pull', () => gitAction(async () => { await runGithubAuthenticatedGit(['pull', '--ff-only']) }))
   ipcMain.handle('git:push', () => gitAction(async () => {
     const branch = (await runGit(['branch', '--show-current'])).stdout
     if (!branch) throw new Error('Seleziona un branch prima di inviare le modifiche.')
-    await runGit(['push', '--set-upstream', 'origin', branch])
+    await runGithubAuthenticatedGit(['push', '--set-upstream', 'origin', branch])
   }))
   const assertCleanGitTree = async () => {
     const dirty = await runGit(['status', '--porcelain=v1'])
@@ -1540,7 +2022,7 @@ app.whenReady().then(() => {
     const current = activeSet()
     if (!current) return
     if (current.blueprintName) {
-      const columns = synchronizeBlueprintFields(current.blueprintName, nextColumns)
+      const columns = replaceBlueprintFields(current.blueprintName, nextColumns)
       for (const set of sets.filter((item) => item.blueprintName === current.blueprintName)) set.cards = set.cards.map((card) => resolveConditionalValues(columns, card))
     } else {
       current.columns = nextColumns
