@@ -9,17 +9,25 @@ import { loadBlueprints, normalizeBlueprintFieldSets } from './blueprints'
 import { dataDirName, defaultColumns } from './constants'
 import { writeDiagnostic } from './diagnostics'
 import { ensureSetGeneratedIds } from './fields'
-import { upgradeNativeSetHashes, logLinkedNativeHashDrifts } from './native/drift'
+import { runExclusive } from './exclusive'
+import { upgradeNativeSetHashes } from './native/drift'
 import { scanNativeSets } from './native/files'
-import { snapshot } from './snapshot'
+import { evaluateNativeSync } from './native/sync'
+import { reloadedNotice, startNativeWatcher, stopNativeWatcher } from './native/watch'
+import { sendNotice, snapshot } from './snapshot'
 import { readSplitSetStore, writeSplitSetStore, persistSets, persistProjectList } from './store'
 import { loadVariables } from './variables'
 import { scanWorkbooks } from './workbooks/import'
 
-export async function openProject(folder: string): Promise<ProjectSnapshot> {
+export function openProject(folder: string): Promise<ProjectSnapshot> {
+  return runExclusive(() => loadProject(folder))
+}
+
+async function loadProject(folder: string): Promise<ProjectSnapshot> {
+  stopNativeWatcher()
+  state.nativeLastWrittenHashes.clear()
+  state.nativeSyncErrors.clear()
   state.activeProject = folder
-  for (const key of state.notifiedNativeSyncSkips)
-    if (key.startsWith(`${folder}:`)) state.notifiedNativeSyncSkips.delete(key)
   state.projectName = path.basename(folder)
   const storeDir = path.join(folder, dataDirName)
   const setsFile = path.join(storeDir, 'sets.json')
@@ -63,8 +71,11 @@ export async function openProject(folder: string): Promise<ProjectSnapshot> {
   const blueprintsNormalized = normalizeBlueprintFieldSets()
   const idsNormalized = state.sets.reduce((changed, set) => ensureSetGeneratedIds(set) || changed, false)
   if (blueprintsNormalized || idsNormalized) await persistSets(false)
-  await logLinkedNativeHashDrifts()
+  // Native files may have changed while the app was closed: same policy as the live watcher.
+  const reloaded = await evaluateNativeSync()
   await persistProjectList()
+  startNativeWatcher()
+  if (reloaded.length) sendNotice(reloadedNotice(reloaded))
   return snapshot()
 }
 

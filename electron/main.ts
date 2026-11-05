@@ -3,6 +3,7 @@ import path from 'node:path'
 import { state } from './state'
 import { writeDiagnostic } from './diagnostics'
 import { registerIpcHandlers } from './ipc'
+import { stopNativeWatcher } from './native/watch'
 
 async function createWindow() {
   await writeDiagnostic('info', 'window.create', {
@@ -40,6 +41,8 @@ app.whenReady().then(() => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
 })
+
+app.on('before-quit', stopNativeWatcher)
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

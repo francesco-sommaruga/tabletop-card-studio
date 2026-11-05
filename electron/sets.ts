@@ -12,6 +12,7 @@ import { writeDiagnostic } from './diagnostics'
 import { mergeColumnDefinitions, ensureSetGeneratedIds } from './fields'
 import { nativeDocumentHash } from './hash'
 import { scanNativeSets, writeLinkedNativeSetName } from './native/files'
+import { createNativeFile, nativeSetsDirectory, serializeNativeDocument } from './native/io'
 import { nativeItemFromCard } from './native/items'
 import { snapshot, activeSet } from './snapshot'
 import { persistSets } from './store'
@@ -80,6 +81,7 @@ export async function duplicateProjectSet(setId: string): Promise<ProjectSnapsho
     nativeSetFile: undefined,
     nativeSetIndex: undefined,
     nativeSetHash: undefined,
+    nativeSyncPending: undefined,
   }
   duplicate.cards = ensureGeneratedIdValues(duplicate.cards, duplicate.columns, randomUUID, true)
   if (source.nativeSetFile && source.nativeSetIndex !== undefined) {
@@ -112,14 +114,12 @@ export async function duplicateProjectSet(setId: string): Promise<ProjectSnapsho
       card.nativeItem = JSON.parse(JSON.stringify(copiedNativeItems[index]))
     })
     const nativeDocument = { ...document, sets: [nativeCopy] }
-    const serialized = JSON.stringify(nativeDocument, null, 2)
-    const directory = path.join(state.activeProject, 'data', 'sets')
+    const directory = nativeSetsDirectory()
     let file = `${crypto.randomUUID()}.json`
     while (existsSync(path.join(directory, file))) file = `${crypto.randomUUID()}.json`
-    await fs.writeFile(path.join(directory, file), serialized, { flag: 'wx' })
+    duplicate.nativeSetHash = await createNativeFile(file, serializeNativeDocument(nativeDocument))
     duplicate.nativeSetFile = file
     duplicate.nativeSetIndex = 0
-    duplicate.nativeSetHash = nativeDocumentHash(serialized)
     state.nativeSets = await scanNativeSets()
   }
   state.sets.push(duplicate)

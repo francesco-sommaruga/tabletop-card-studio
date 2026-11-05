@@ -1,15 +1,26 @@
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import { existsSync } from 'node:fs'
-import type { Card, ProjectSnapshot } from '../../src/types'
+import type { ProjectSnapshot } from '../../src/types'
 import { state } from '../state'
 import { columnsFromBlueprint, synchronizeBlueprintFields } from '../blueprints'
-import { dataDirName } from '../constants'
 import { writeDiagnostic } from '../diagnostics'
 import { mergeColumnDefinitions, ensureSetGeneratedIds } from '../fields'
 import { nativeDocumentHash } from '../hash'
 import { scanNativeSets } from './files'
+import {
+  backupNativeFileByHash,
+  createNativeFile,
+  linkedNativeGroups,
+  nativeSetsDirectory,
+  readNativeFile,
+  serializeNativeDocument,
+  writeNativeFile,
+} from './io'
 import { columnsFromNativeItems, nativeCard, nativeItemFromCard } from './items'
+import { nativeSetItems, matchCardsToItems } from './reload'
+import { reloadNativeGroup } from './sync'
+import { startNativeWatcher } from './watch'
 import { snapshot } from '../snapshot'
 import { persistSets } from '../store'
 
@@ -36,10 +47,7 @@ export async function connectNativeSet(setId: string, file: string, index: numbe
   const nativeSet = document.sets?.[index]
   if (!nativeSet || !Array.isArray(nativeSet.items))
     throw new Error('Il set selezionato non è più disponibile nel progetto.')
-  const rawItems = (nativeSet.items as unknown[]).filter(
-    (item: unknown): item is Record<string, unknown> =>
-      Boolean(item) && typeof item === 'object' && !Array.isArray(item),
-  )
+  const rawItems = nativeSetItems(nativeSet)
   const nativeBlueprintName =
     typeof nativeSet.blueprint_name === 'string' && nativeSet.blueprint_name
       ? nativeSet.blueprint_name
@@ -60,25 +68,10 @@ export async function connectNativeSet(setId: string, file: string, index: numbe
     fieldCount: columns.length,
     fieldHeaders: columns.map((column) => column.header),
   })
-  const existingByTitle = new Map<string, Card[]>()
-  for (const card of target.cards) {
-    const key = card.title.trim().toLocaleLowerCase()
-    existingByTitle.set(key, [...(existingByTitle.get(key) ?? []), card])
-  }
-  const cards = rawItems.map((item, itemIndex) => {
-    const details = new Map<string, Record<string, unknown>>()
-    for (const detail of Array.isArray(item.details) ? item.details : []) {
-      if (!detail || typeof detail !== 'object') continue
-      const record = detail as { name?: unknown; data?: unknown }
-      if (typeof record.name === 'string' && record.data && typeof record.data === 'object')
-        details.set(record.name, record.data as Record<string, unknown>)
-    }
-    const title = String(details.get('title')?.value ?? `Carta ${itemIndex + 1}`)
-      .trim()
-      .toLocaleLowerCase()
-    const existing = existingByTitle.get(title)?.shift()
-    return nativeCard(`Carta ${itemIndex + 1}`, item, columns, existing)
-  })
+  const matches = matchCardsToItems(target.cards, rawItems, false)
+  const cards = rawItems.map((item, itemIndex) =>
+    nativeCard(`Carta ${itemIndex + 1}`, item, columns, matches[itemIndex]),
+  )
   target.cards = cards
   target.columns = columns
   ensureSetGeneratedIds(target)
@@ -90,6 +83,7 @@ export async function connectNativeSet(setId: string, file: string, index: numbe
   if (nativeBlueprintName) synchronizeBlueprintFields(nativeBlueprintName, columns)
   state.nativeSets = await scanNativeSets()
   await persistSets(false)
+  startNativeWatcher()
   return snapshot()
 }
 
@@ -122,20 +116,19 @@ export async function createNativeSet(setId: string, name: string, blueprintName
     collapsed: false,
     items: target.cards.map((card) => nativeItemFromCard(card, target.columns)),
   }
-  const document = { json_version: 5, sets: [nativeSet] }
-  const serialized = JSON.stringify(document, null, 2)
-  const directory = path.join(state.activeProject, 'data', 'sets')
-  await fs.mkdir(directory, { recursive: true })
+  const serialized = serializeNativeDocument({ json_version: 5, sets: [nativeSet] })
+  const directory = nativeSetsDirectory()
   let file = `${crypto.randomUUID()}.json`
   while (existsSync(path.join(directory, file))) file = `${crypto.randomUUID()}.json`
-  await fs.writeFile(path.join(directory, file), serialized, { flag: 'wx' })
+  const hash = await createNativeFile(file, serialized)
   for (let index = 0; index < target.cards.length; index += 1)
     target.cards[index].nativeItem = JSON.parse(JSON.stringify(nativeSet.items[index]))
   target.nativeSetFile = file
   target.nativeSetIndex = 0
-  target.nativeSetHash = nativeDocumentHash(serialized)
+  target.nativeSetHash = hash
   state.nativeSets = await scanNativeSets()
   await persistSets(false)
+  startNativeWatcher()
   return snapshot()
 }
 
@@ -146,11 +139,16 @@ export async function disconnectNativeSet(setId: string): Promise<ProjectSnapsho
   target.nativeSetFile = undefined
   target.nativeSetIndex = undefined
   target.nativeSetHash = undefined
+  target.nativeSyncPending = undefined
   target.cards = target.cards.map(({ nativeItem: _nativeItem, ...card }) => card)
   await persistSets(false)
   return snapshot()
 }
 
+/**
+ * Reloads the file's linked sets from the native content first, so card edits made in Tabletop
+ * Creator are kept, then applies the chosen name. Refused while a sync conflict is open.
+ */
 export async function resolveNativeSetNameConflict(
   setId: string,
   resolution: 'card-studio' | 'tabletop',
@@ -159,28 +157,21 @@ export async function resolveNativeSetNameConflict(
   if (!target?.nativeSetFile || target.nativeSetIndex === undefined)
     throw new Error('Il set non è collegato a Tabletop Creator.')
   const file = path.basename(target.nativeSetFile)
-  const filePath = path.join(state.activeProject, 'data', 'sets', file)
-  const raw = await fs.readFile(filePath)
-  const document = JSON.parse(raw.toString('utf8'))
-  const nativeSet = document.sets?.[target.nativeSetIndex]
+  const group = linkedNativeGroups().get(file) ?? [target]
+  if (group.some((set) => set.nativeSyncPending))
+    throw new Error('Risolvi prima il conflitto di sincronizzazione con Tabletop Creator.')
+  const native = await readNativeFile(file)
+  const nativeSet = native.document.sets?.[target.nativeSetIndex]
   if (!nativeSet || !Array.isArray(nativeSet.items))
     throw new Error('Il set nativo non è più disponibile nel progetto.')
-  if (resolution === 'card-studio') nativeSet.name = target.name
-  else target.name = String(nativeSet.name || target.name)
-  const serialized = JSON.stringify(document, null, 2)
-  if (resolution === 'card-studio') {
-    const backupDirectory = path.join(state.activeProject, dataDirName, 'native-backups')
-    await fs.mkdir(backupDirectory, { recursive: true })
-    const hash = nativeDocumentHash(raw)
-    const backupPath = path.join(backupDirectory, `${file}.${hash.slice(0, 16)}.json`)
-    if (!existsSync(backupPath)) await fs.copyFile(filePath, backupPath)
-    const temporary = `${filePath}.card-studio-${crypto.randomUUID()}.tmp`
-    await fs.writeFile(temporary, serialized)
-    await fs.rename(temporary, filePath)
+  reloadNativeGroup(file, group, native)
+  if (resolution === 'tabletop') target.name = String(nativeSet.name || target.name)
+  else {
+    nativeSet.name = target.name
+    await backupNativeFileByHash(file, native.hash)
+    const nextHash = await writeNativeFile(file, serializeNativeDocument(native.document))
+    for (const set of group) set.nativeSetHash = nextHash
   }
-  const nextHash = nativeDocumentHash(resolution === 'card-studio' ? serialized : raw)
-  for (const set of state.sets)
-    if (set.nativeSetFile && path.basename(set.nativeSetFile) === file) set.nativeSetHash = nextHash
   await persistSets(false)
   state.nativeSets = await scanNativeSets()
   return snapshot()

@@ -5,6 +5,7 @@ import { existsSync } from 'node:fs'
 import type { ProjectSet } from '../src/types'
 import { state } from './state'
 import { dataDirName } from './constants'
+import { writeFileAtomically } from './fsutil'
 import { sha256 } from './hash'
 import { syncLinkedNativeFiles } from './native/files'
 
@@ -12,13 +13,6 @@ type SetStoreIndex = { version: 1; sets: Array<{ id: string; file: string }> }
 
 function setStoreFile(id: string) {
   return `set-${sha256(id).slice(0, 20)}.json`
-}
-
-export async function writeFileAtomically(filePath: string, contents: string) {
-  await fs.mkdir(path.dirname(filePath), { recursive: true })
-  const tempPath = `${filePath}.card-studio-${crypto.randomUUID()}.tmp`
-  await fs.writeFile(tempPath, contents, 'utf8')
-  await fs.rename(tempPath, filePath)
 }
 
 export async function readSplitSetStore(storeDir: string): Promise<ProjectSet[] | null> {
@@ -81,11 +75,22 @@ export async function writeSplitSetStore(storeDir: string, projectSets: ProjectS
   }
 }
 
+// Linked sets whose content differs from their stored copy, i.e. changed by the current operation.
+async function changedLinkedSetIds(storeDir: string) {
+  const changed = new Set<string>()
+  for (const set of state.sets) {
+    if (!set.nativeSetFile) continue
+    const stored = await fs.readFile(path.join(storeDir, 'sets', setStoreFile(set.id)), 'utf8').catch(() => '')
+    if (stored !== JSON.stringify(set, null, 2)) changed.add(set.id)
+  }
+  return changed
+}
+
 export async function persistSets(syncNative = true) {
   if (!state.activeProject) return
   const dir = path.join(state.activeProject, dataDirName)
   await fs.mkdir(dir, { recursive: true })
-  if (syncNative) await syncLinkedNativeFiles()
+  if (syncNative) await syncLinkedNativeFiles(await changedLinkedSetIds(dir))
   await writeSplitSetStore(dir, state.sets)
 }
 

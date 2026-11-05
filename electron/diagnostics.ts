@@ -2,6 +2,8 @@ import { app, ipcMain, shell } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import { state } from './state'
+import { runExclusive } from './exclusive'
+import { reconcileRolledBackNativeWrites } from './native/io'
 
 let diagnosticQueue: Promise<void> = Promise.resolve()
 
@@ -38,7 +40,8 @@ function summarizeDiagnosticArgs(channel: string, args: unknown[]) {
     return { setIds: args[0] && typeof args[0] === 'object' ? Object.keys(args[0] as object) : [] }
   if (channel === 'sets:link-native') return { setId: args[0], file: args[1], index: args[2] }
   if (channel === 'sets:create-native') return { setId: args[0], name: args[1], blueprintName: args[2] }
-  if (channel === 'sets:resolve-name-conflict') return { setId: args[0], resolution: args[1] }
+  if (channel === 'sets:resolve-name-conflict' || channel === 'sets:resolve-native-conflict')
+    return { setId: args[0], resolution: args[1] }
   if (channel === 'sets:rename') return { setId: args[0], name: args[1] }
   if (channel === 'sets:create') return { name: args[0] }
   if (
@@ -52,41 +55,46 @@ function summarizeDiagnosticArgs(channel: string, args: unknown[]) {
 }
 
 export function registerLoggedHandler(channel: string, handler: (...args: any[]) => unknown) {
-  ipcMain.handle(channel, async (_event, ...args: unknown[]) => {
-    const operationId = crypto.randomUUID()
-    const details = summarizeDiagnosticArgs(channel, args)
-    const startedAt = Date.now()
-    const transactional =
-      channel.startsWith('sets:') ||
-      channel === 'cards:save' ||
-      channel === 'columns:save' ||
-      channel === 'cards:move' ||
-      channel === 'blueprints:assignments-save'
-    const previousSets = transactional ? structuredClone(state.sets) : null
-    const previousActiveSetId = state.activeSetId
-    const previousNativeSets = transactional ? structuredClone(state.nativeSets) : null
-    await writeDiagnostic('info', 'operation.started', { operationId, channel, details })
-    try {
-      const result = await handler(...args)
-      await writeDiagnostic('info', 'operation.succeeded', { operationId, channel, durationMs: Date.now() - startedAt })
-      return result
-    } catch (error) {
-      if (previousSets) state.sets = previousSets
-      if (transactional) {
-        state.activeSetId = previousActiveSetId
-        state.nativeSets = previousNativeSets ?? state.nativeSets
-      }
-      await writeDiagnostic('error', 'operation.failed', {
-        operationId,
-        channel,
-        durationMs: Date.now() - startedAt,
-        details,
-        error:
-          error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),
-      })
-      throw error
+  ipcMain.handle(channel, (_event, ...args: unknown[]) => runExclusive(() => runLogged(channel, handler, args)))
+}
+
+async function runLogged(channel: string, handler: (...args: any[]) => unknown, args: unknown[]) {
+  const operationId = crypto.randomUUID()
+  const details = summarizeDiagnosticArgs(channel, args)
+  const startedAt = Date.now()
+  const transactional =
+    channel.startsWith('sets:') ||
+    channel === 'cards:save' ||
+    channel === 'columns:save' ||
+    channel === 'cards:move' ||
+    channel === 'blueprints:assignments-save'
+  const previousSets = transactional ? structuredClone(state.sets) : null
+  const previousActiveSetId = state.activeSetId
+  const previousNativeSets = transactional ? structuredClone(state.nativeSets) : null
+  const previousNativeWrites = new Map(state.nativeLastWrittenHashes)
+  await writeDiagnostic('info', 'operation.started', { operationId, channel, details })
+  try {
+    const result = await handler(...args)
+    await writeDiagnostic('info', 'operation.succeeded', { operationId, channel, durationMs: Date.now() - startedAt })
+    return result
+  } catch (error) {
+    if (previousSets) {
+      state.sets = previousSets
+      reconcileRolledBackNativeWrites(previousNativeWrites)
     }
-  })
+    if (transactional) {
+      state.activeSetId = previousActiveSetId
+      state.nativeSets = previousNativeSets ?? state.nativeSets
+    }
+    await writeDiagnostic('error', 'operation.failed', {
+      operationId,
+      channel,
+      durationMs: Date.now() - startedAt,
+      details,
+      error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),
+    })
+    throw error
+  }
 }
 
 export async function openDiagnosticLog() {

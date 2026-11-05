@@ -1,5 +1,7 @@
 import type { ProjectSnapshot } from '../src/types'
 import { state } from './state'
+import { runExclusive } from './exclusive'
+import { nativeSyncStatuses } from './native/io'
 
 export function activeSet() {
   return state.sets.find((set) => set.id === state.activeSetId) ?? null
@@ -27,5 +29,27 @@ export function snapshot(): ProjectSnapshot {
     variables: state.variables,
     blueprints: state.blueprints,
     nativeSets: state.nativeSets,
+    nativeSync: nativeSyncStatuses(),
   }
+}
+
+/** Sends the current snapshot to the renderer (preload `onSnapshot`). */
+export function pushSnapshot() {
+  if (state.activeProject) state.win?.webContents.send('project:snapshot', snapshot())
+}
+
+let isPushQueued = false
+
+/** Pushes the snapshot once the running operation (and a possible rollback) has finished. */
+export function requestSnapshotPush() {
+  if (isPushQueued) return
+  isPushQueued = true
+  void runExclusive(async () => {
+    isPushQueued = false
+    pushSnapshot()
+  })
+}
+
+export function sendNotice(message: string) {
+  state.win?.webContents.send('app:notice', message)
 }

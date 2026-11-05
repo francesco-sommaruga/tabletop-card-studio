@@ -49,8 +49,12 @@ export interface ProjectSet {
   nativeSetFile?: string
   nativeSetIndex?: number
   nativeSetHash?: string
+  /** True when CMS changes of this linked set could not be written to the native file yet. */
+  nativeSyncPending?: boolean
   blueprintName?: string
 }
+
+export type NativeSyncStatus = 'synced' | 'conflict' | 'error'
 
 export interface NativeSetInfo {
   file: string
@@ -266,10 +270,13 @@ export interface ProjectSnapshot {
   variables: ProjectVariable[]
   blueprints: TabletopBlueprint[]
   nativeSets: NativeSetInfo[]
+  /** Sync state of every set linked to a Tabletop Creator file, keyed by set id. */
+  nativeSync: Record<string, NativeSyncStatus>
 }
 
 export interface CardCmsApi {
   onNotice: (callback: (message: string) => void) => () => void
+  onSnapshot: (callback: (snapshot: ProjectSnapshot) => void) => () => void
   openDiagnosticLog: () => Promise<string>
   writeDiagnostic: (event: string, details?: Record<string, string | number | boolean | undefined>) => Promise<void>
   openProject: () => Promise<ProjectSnapshot | null>
@@ -333,6 +340,7 @@ export interface CardCmsApi {
   linkNativeSet: (setId: string, file: string, index: number) => Promise<ProjectSnapshot>
   createNativeSet: (setId: string, name: string, blueprintName: string) => Promise<ProjectSnapshot>
   resolveNativeSetNameConflict: (setId: string, resolution: 'card-studio' | 'tabletop') => Promise<ProjectSnapshot>
+  resolveNativeConflict: (setId: string, resolution: 'reload' | 'overwrite') => Promise<ProjectSnapshot>
   unlinkNativeSet: (setId: string) => Promise<ProjectSnapshot>
   saveBlueprintAssignments: (assignments: Record<string, string>) => Promise<ProjectSnapshot>
   duplicateSet: (setId: string) => Promise<ProjectSnapshot>

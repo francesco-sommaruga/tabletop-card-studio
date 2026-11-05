@@ -4,6 +4,7 @@ import type { Card, ColumnDefinition, ImportPlan, ProjectVariable } from '../src
 import { importAssets } from './assets'
 import { reloadBlueprints } from './blueprints'
 import { openDiagnosticLog, writeRendererDiagnostic, registerLoggedHandler } from './diagnostics'
+import { runExclusive } from './exclusive'
 import {
   readGitStatus,
   gitAction,
@@ -37,6 +38,7 @@ import {
   deleteMarkdownFile,
 } from './markdown'
 import { connectNativeSet, createNativeSet, disconnectNativeSet, resolveNativeSetNameConflict } from './native/link'
+import { resolveNativeConflict } from './native/sync'
 import { openProjectFromDialog, openProject, listProjects } from './project'
 import {
   saveActiveCards,
@@ -118,6 +120,9 @@ export function registerIpcHandlers() {
   registerLoggedHandler('sets:resolve-name-conflict', async (setId: string, resolution: 'card-studio' | 'tabletop') =>
     resolveNativeSetNameConflict(setId, resolution),
   )
+  registerLoggedHandler('sets:resolve-native-conflict', async (setId: string, resolution: 'reload' | 'overwrite') =>
+    resolveNativeConflict(setId, resolution),
+  )
   registerLoggedHandler('sets:duplicate', async (setId: string) => duplicateProjectSet(setId))
   registerLoggedHandler('cards:move', async (cardId: string, targetSetId: string, draft?: Card) =>
     moveCardBetweenSets(cardId, targetSetId, draft),
@@ -126,7 +131,7 @@ export function registerIpcHandlers() {
   registerLoggedHandler('sets:delete', async (id: string) => deleteSet(id))
   registerLoggedHandler('sets:create', async (name: string) => createSet(name))
   ipcMain.handle('workbooks:scan', () => rescanWorkbooks())
-  ipcMain.handle('workbooks:import', (_event, plans: ImportPlan[]) => importWorkbooks(plans))
+  ipcMain.handle('workbooks:import', (_event, plans: ImportPlan[]) => runExclusive(() => importWorkbooks(plans)))
   ipcMain.handle(
     'workbooks:merge-preview',
     async (
@@ -139,7 +144,7 @@ export function registerIpcHandlers() {
     ) => previewWorkbookMerge(file, setId, matchFieldId, fieldIds, restoreFieldIds),
   )
   ipcMain.handle('workbooks:merge-apply', async (_event, token: string, resolutions: Record<string, 'excel' | 'set'>) =>
-    applyWorkbookMerge(token, resolutions),
+    runExclusive(() => applyWorkbookMerge(token, resolutions)),
   )
   ipcMain.handle('assets:import', () => importAssets())
   ipcMain.handle('icons:resolve', (_event, reference: string) => resolveProjectIcon(reference))

@@ -21,6 +21,8 @@ export const state = {
   variables: [] as ProjectVariable[],
   blueprints: [] as TabletopBlueprint[],
   nativeSets: [] as NativeSetInfo[],
-  // "<projectPath>:<native file>" keys already notified about a skipped native sync in this session.
-  notifiedNativeSyncSkips: new Set<string>(),
+  // Native file name -> canonical hash of the content Card Studio last wrote there (this session).
+  nativeLastWrittenHashes: new Map<string, string>(),
+  // Native file name -> message of the last failed read/write; its linked sets show 'error'.
+  nativeSyncErrors: new Map<string, string>(),
 }

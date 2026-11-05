@@ -26,6 +26,11 @@ contextBridge.exposeInMainWorld('cardCms', {
     ipcRenderer.on('app:notice', listener)
     return () => ipcRenderer.removeListener('app:notice', listener)
   },
+  onSnapshot: (callback: (snapshot: ProjectSnapshot) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, snapshot: ProjectSnapshot) => callback(snapshot)
+    ipcRenderer.on('project:snapshot', listener)
+    return () => ipcRenderer.removeListener('project:snapshot', listener)
+  },
   openDiagnosticLog: () => ipcRenderer.invoke('diagnostics:open') as Promise<string>,
   writeDiagnostic: (event: string, details?: Record<string, string | number | boolean | undefined>) =>
     ipcRenderer.invoke('diagnostics:renderer', event, details) as Promise<void>,
@@ -48,6 +53,8 @@ contextBridge.exposeInMainWorld('cardCms', {
     ipcRenderer.invoke('sets:create-native', setId, name, blueprintName) as Promise<ProjectSnapshot>,
   resolveNativeSetNameConflict: (setId: string, resolution: 'card-studio' | 'tabletop') =>
     ipcRenderer.invoke('sets:resolve-name-conflict', setId, resolution) as Promise<ProjectSnapshot>,
+  resolveNativeConflict: (setId: string, resolution: 'reload' | 'overwrite') =>
+    ipcRenderer.invoke('sets:resolve-native-conflict', setId, resolution) as Promise<ProjectSnapshot>,
   unlinkNativeSet: (setId: string) => ipcRenderer.invoke('sets:unlink-native', setId) as Promise<ProjectSnapshot>,
   saveBlueprintAssignments: (assignments: Record<string, string>) =>
     ipcRenderer.invoke('blueprints:assignments-save', assignments) as Promise<ProjectSnapshot>,

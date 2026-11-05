@@ -3,7 +3,7 @@ import fs from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import type { MarkdownDocument } from '../src/types'
 import { state } from './state'
-import { writeFileAtomically } from './store'
+import { writeFileAtomically } from './fsutil'
 
 function markdownPath(file: string) {
   const blocked = new Set([
