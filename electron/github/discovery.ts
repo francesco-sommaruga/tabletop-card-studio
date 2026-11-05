@@ -56,7 +56,8 @@ async function githubRepositoryProjectType(
     githubProjectTypeCache.set(repository.id, { updatedAt: repository.updated_at, type })
     return type
   } catch (error) {
-    if (error instanceof GitHubApiError && error.status === 404) {
+    // 404: default branch missing; 409: repository has no commits yet. Neither holds a project.
+    if (error instanceof GitHubApiError && (error.status === 404 || error.status === 409)) {
       githubProjectTypeCache.set(repository.id, { updatedAt: repository.updated_at, type: null })
       return null
     }
