@@ -1,8 +1,11 @@
-import type { ReactNode } from 'react'
+import { useState } from 'react'
+import type { ReactNode, MouseEvent } from 'react'
 import { ArrowRight } from 'lucide-react'
 import type { Card, ColumnDefinition, ProjectAsset, ProjectVariable } from '../../types'
 import type { TableColumn } from '../../hooks/useTableColumns'
+import type { RowNavigationProps } from '../../hooks/useRowNavigation'
 import { formatDate } from '../../lib/format'
+import { adjacentField, cellEditorKind } from '../../lib/inlineCells'
 import { InlineTableCell } from '../../components/fields/InlineTableCell'
 import { VariableTextPreview } from '../../components/fields/VariableTextPreview'
 import { preview } from '../../components/cards/cardPreview'
@@ -115,11 +118,15 @@ function customDisplay(definition: ColumnDefinition | undefined, value: string, 
   )
 }
 
+/** One table row: selection checkbox, inline-editable cells (Tab moves between simple editors), open chevron. */
 export function CardRow({
   card,
   index,
   visibleColumns,
   project,
+  isSelected,
+  navigation,
+  onToggleSelect,
   onSaveField,
   onOpen,
 }: {
@@ -127,14 +134,40 @@ export function CardRow({
   index: number
   visibleColumns: TableColumn[]
   project: ProjectContext
+  isSelected: boolean
+  navigation: RowNavigationProps
+  onToggleSelect: (isRange: boolean) => void
   onSaveField: (card: Card, fieldId: string, value: string) => void
   onOpen: (card: Card) => void
 }) {
+  const [editingField, setEditingField] = useState<string | null>(null)
+  const cells = visibleColumns.map((column) => {
+    const meta = metaCell(card, column.fieldId, index, project)
+    const definition = meta ? undefined : project.columns.find((item) => item.fieldId === column.fieldId)
+    return { column, meta, definition }
+  })
+  const tabOrder = cells
+    .filter(({ column, definition }) => cellEditorKind(column.fieldId, definition) === 'simple')
+    .map(({ column }) => column.fieldId)
+  const navigateFrom = (fieldId: string, direction: 1 | -1) => {
+    const next = adjacentField(tabOrder, fieldId, direction)
+    if (next) setEditingField(next)
+    return Boolean(next)
+  }
   return (
-    <div className="card-row">
-      {visibleColumns.map((column) => {
-        const meta = metaCell(card, column.fieldId, index, project)
-        const definition = meta ? undefined : project.columns.find((item) => item.fieldId === column.fieldId)
+    <div className={`card-row ${isSelected ? 'is-selected' : ''}`} data-card-id={card.id} {...navigation}>
+      <span className="col-select">
+        <input
+          type="checkbox"
+          className="row-select-checkbox"
+          tabIndex={-1}
+          checked={isSelected}
+          readOnly
+          onClick={(event: MouseEvent) => onToggleSelect(event.shiftKey)}
+          aria-label={`Seleziona ${card.title || 'Carta senza titolo'}`}
+        />
+      </span>
+      {cells.map(({ column, meta, definition }) => {
         const value = meta ? meta.value : (card.values[column.fieldId]?.trim() ?? '')
         return (
           <InlineTableCell
@@ -146,9 +179,11 @@ export function CardRow({
             assets={project.assets}
             variables={project.variables}
             projectPath={project.projectPath}
-            onSave={
-              column.fieldId === 'meta_updated' ? () => undefined : (next) => onSaveField(card, column.fieldId, next)
-            }
+            editing={editingField === column.fieldId}
+            onStartEdit={() => setEditingField(column.fieldId)}
+            onStopEdit={() => setEditingField((current) => (current === column.fieldId ? null : current))}
+            onNavigate={(direction) => navigateFrom(column.fieldId, direction)}
+            onSave={(next) => onSaveField(card, column.fieldId, next)}
           />
         )
       })}

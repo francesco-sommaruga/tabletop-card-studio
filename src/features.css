@@ -7137,3 +7137,233 @@
   background: transparent;
   color: #988f82;
 }
+
+/* Card selection, bulk actions and table keyboard navigation */
+.cards-table .col-select {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0;
+}
+.cards-table .col-select input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: #a95539;
+  cursor: pointer;
+}
+.cards-table .col-select input:disabled {
+  cursor: default;
+}
+.card-row .row-select-checkbox {
+  opacity: 0.45;
+  transition: opacity 0.12s;
+}
+.card-row:hover .row-select-checkbox,
+.card-row:focus-visible .row-select-checkbox,
+.cards-table.has-selection .row-select-checkbox {
+  opacity: 1;
+}
+.card-row.is-selected {
+  background: #efe3d4;
+  box-shadow: inset 2px 0 0 #b66b4e;
+}
+.card-row.is-selected:hover {
+  background: #e9dac8;
+}
+.card-row:focus {
+  outline: none;
+}
+.card-row:focus-visible {
+  outline: 2px solid #b66b4e;
+  outline-offset: -2px;
+}
+.card-row .inline-cell-value:focus-visible {
+  outline: 2px solid #c08a6d;
+  outline-offset: 1px;
+}
+.bulk-bar {
+  flex: 1;
+  max-width: 850px;
+  min-height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 3px;
+  padding: 0 4px 0 12px;
+  border-radius: 3px;
+  background: #38342e;
+  color: #f8f3e9;
+  box-shadow: 0 6px 18px #30271f1f;
+  animation: fade 0.16s ease-out;
+}
+.bulk-count {
+  margin-right: auto;
+  padding-right: 10px;
+  font: 10px var(--mono);
+  letter-spacing: 0.04em;
+  color: #cfc5b6;
+  white-space: nowrap;
+}
+.bulk-count strong {
+  margin-right: 3px;
+  color: #fff7eb;
+  font-weight: 500;
+}
+.bulk-menu {
+  position: relative;
+}
+.bulk-action,
+.bulk-clear,
+.bulk-status {
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 9px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #efe6d8;
+  font-size: 10px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.bulk-action:hover:not(:disabled),
+.bulk-action.active,
+.bulk-clear:hover,
+.bulk-status:hover {
+  background: #4b453d;
+  color: #fff7eb;
+}
+.bulk-action:disabled {
+  color: #8d8478;
+  cursor: default;
+}
+.bulk-action:focus-visible,
+.bulk-clear:focus-visible,
+.bulk-status:focus-within {
+  outline: 2px solid #d39a7c;
+  outline-offset: -2px;
+}
+.bulk-status {
+  position: relative;
+  padding-right: 6px;
+}
+.bulk-status select {
+  appearance: none;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font-size: 10px;
+  padding-right: 16px;
+  cursor: pointer;
+}
+.bulk-status select option {
+  color: #302b25;
+}
+.bulk-status svg {
+  position: absolute;
+  right: 6px;
+  pointer-events: none;
+}
+.bulk-danger {
+  color: #f0b39c;
+}
+.bulk-danger:hover:not(:disabled) {
+  background: #5a3a2e;
+  color: #ffd6c6;
+}
+.bulk-clear {
+  margin-left: 4px;
+  border-left: 1px solid #514a41;
+  border-radius: 0 3px 3px 0;
+  color: #cfc5b6;
+}
+.bulk-bar.is-confirming {
+  background: #5a3329;
+  gap: 6px;
+}
+.bulk-confirm-text {
+  margin-right: auto;
+  font-size: 11px;
+  color: #fde9df;
+}
+.bulk-danger-confirm {
+  background: #b75338;
+  color: #fff8ef;
+  font-weight: 600;
+}
+.bulk-bar .bulk-danger-confirm:hover {
+  background: #c9603f;
+}
+.bulk-popover {
+  position: absolute;
+  z-index: 15;
+  top: calc(100% + 9px);
+  right: 0;
+  width: 240px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  background: #fbf9f4;
+  border: 1px solid #dfd6c9;
+  border-radius: 4px;
+  box-shadow: 0 10px 28px #35281f26;
+  color: #51483d;
+}
+.bulk-popover > strong {
+  font: 8px var(--mono);
+  letter-spacing: 0.08em;
+  color: #8f8374;
+  text-transform: uppercase;
+}
+.bulk-popover > input {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid #e3ddd2;
+  border-radius: 3px;
+  background: #fffdf8;
+  color: #4a443d;
+  font-size: 11px;
+  outline: 0;
+}
+.bulk-popover > input:focus {
+  border-color: #caa58b;
+  box-shadow: 0 0 0 2px #a9553915;
+}
+.bulk-popover .select-wrap {
+  height: 32px;
+}
+.bulk-popover .select-wrap select {
+  width: 100%;
+}
+.bulk-field-popover {
+  width: 270px;
+}
+.bulk-apply {
+  height: 30px;
+  font-size: 11px;
+}
+.bulk-apply:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.bulk-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  max-height: 200px;
+  overflow: auto;
+}
+.bulk-tag {
+  cursor: pointer;
+}
+.bulk-tag:hover,
+.bulk-tag:focus-visible {
+  border-color: #c7a58d;
+  background: #f1e3d7;
+  color: #98533b;
+}

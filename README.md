@@ -67,6 +67,8 @@ I pacchetti vengono generati in `dist/`.
 - Modifica i campi direttamente nelle righe dell’archivio, assegna tag e stato alle carte, cerca e filtra per campi e ordina l’elenco.
 - Annulla e ripristina le modifiche alle carte (modifiche in tabella e nell’editor, nuove carte, eliminazioni) con Ctrl+Z e Ctrl+Maiusc+Z / Ctrl+Y (Cmd su macOS), separatamente per ogni set; dopo un annullamento il pulsante **Ripristina** nel messaggio rifà la modifica. Nei campi di testo resta attivo l’annulla del testo.
 - Nell’editor della carta passa alla carta precedente o successiva dell’elenco filtrato e ordinato con i pulsanti in alto o con Alt+↑/↓; le modifiche non salvate vengono salvate prima di cambiare carta. Ctrl+S (Cmd+S) salva la carta.
+- Seleziona più carte nell’archivio con le caselle di spunta (Maiusc+clic per un intervallo, la casella dell’intestazione per tutte le carte filtrate) e modificale insieme: imposta lo stato, aggiungi o rimuovi un tag, imposta il valore di un campo oppure eliminale dopo una conferma. La selezione si azzera quando cambi set, ricerca o filtri.
+- Usa l’archivio da tastiera: ↑/↓ spostano il focus tra le righe, Invio apre la carta nell’editor, Spazio la seleziona, Esc azzera la selezione e Ctrl/Cmd+F porta alla ricerca. Nelle celle in modifica Invio salva, Esc annulla e Tab/Maiusc+Tab salvano e passano alla cella successiva o precedente della riga.
 - Scegli quali colonne mostrare nell’archivio: le colonne di base restano attive al primo avvio e le preferenze vengono salvate per progetto e set.
 - Apri un’anteprima ricostruita dai blueprint del progetto, con selezione del blueprint e vista fronte/retro.
 - Consulta statistiche per tag e proprietà, anche incrociando due campi e contando carte uniche o copie.

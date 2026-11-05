@@ -1,6 +1,12 @@
 import { useRef } from 'react'
 import type { RefObject, PointerEvent as ReactPointerEvent, KeyboardEvent as ReactKeyboardEvent } from 'react'
-import { defaultTableColumnWidth, minimumTableColumnWidth, maximumTableColumnWidth } from '../lib/tableColumns'
+import {
+  defaultTableColumnWidth,
+  minimumTableColumnWidth,
+  maximumTableColumnWidth,
+  tableGridTemplate,
+  tableGridMinWidth,
+} from '../lib/tableColumns'
 import type { TableColumn } from './useTableColumns'
 
 interface ResizeState {
@@ -45,13 +51,9 @@ export function useColumnResize(
   const applyLiveTableWidths = (widths: Record<string, number>) => {
     const root = cardsTableRef.current
     if (!root) return
-    const template = [...visibleTableColumns.map((column) => `${widthOf(widths, column)}px`), '22px'].join(' ')
-    root.style.setProperty('--card-grid-template', template)
-    const minWidth =
-      visibleTableColumns.reduce((sum, column) => sum + widthOf(widths, column), 22) +
-      visibleTableColumns.length * 10 +
-      20
-    root.style.setProperty('--card-grid-min-width', `${minWidth}px`)
+    const dataWidths = visibleTableColumns.map((column) => widthOf(widths, column))
+    root.style.setProperty('--card-grid-template', tableGridTemplate(dataWidths.map((width) => `${width}px`)))
+    root.style.setProperty('--card-grid-min-width', `${tableGridMinWidth(dataWidths)}px`)
   }
   const startColumnResize = (fieldId: string, event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0) return

@@ -1,14 +1,40 @@
+import { useEffect, useRef } from 'react'
 import { BookOpen, Plus, FileSpreadsheet } from 'lucide-react'
 import type { Card, ColumnDefinition, ProjectAsset, ProjectVariable } from '../../types'
 import { defaultTableColumnWidth, minimumTableColumnWidth, maximumTableColumnWidth } from '../../lib/tableColumns'
 import type { CardFilters } from '../../hooks/useCardFilters'
 import type { TableColumns } from '../../hooks/useTableColumns'
+import type { CardSelection } from '../../hooks/useCardSelection'
+import { useRowNavigation } from '../../hooks/useRowNavigation'
 import { CardRow } from './CardRow'
 
-/** Sortable, resizable cards table with inline-editable cells, or the empty state. */
+/** Header checkbox: checked when every filtered card is selected, indeterminate when only some are. */
+function SelectAllCheckbox({ selection, isDisabled }: { selection: CardSelection; isDisabled: boolean }) {
+  const ref = useRef<HTMLInputElement>(null)
+  const { headerState } = selection
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = headerState === 'some'
+  }, [headerState])
+  return (
+    <span className="col-select">
+      <input
+        ref={ref}
+        type="checkbox"
+        className="select-all-checkbox"
+        checked={headerState === 'all'}
+        disabled={isDisabled}
+        onChange={selection.toggleAll}
+        aria-label="Seleziona tutte le carte filtrate"
+      />
+    </span>
+  )
+}
+
+/** Sortable, resizable, selectable cards table with inline-editable cells, or the empty state. */
 export function CardsTable({
   table,
   filters,
+  selection,
   totalCount,
   project,
   onSaveField,
@@ -18,6 +44,7 @@ export function CardsTable({
 }: {
   table: TableColumns
   filters: CardFilters
+  selection: CardSelection
   totalCount: number
   project: { columns: ColumnDefinition[]; assets: ProjectAsset[]; variables: ProjectVariable[]; projectPath: string }
   onSaveField: (card: Card, fieldId: string, value: string) => void
@@ -27,13 +54,15 @@ export function CardsTable({
 }) {
   const { visibleTableColumns, storedTableWidths } = table
   const { filteredCards, sortIndicator } = filters
+  const rowNavigation = useRowNavigation(table.cardsTableRef, filteredCards, selection, onOpenCard)
   return (
     <div
       ref={table.cardsTableRef}
-      className={`cards-table ${table.isColumnResizing() ? 'is-column-resizing' : ''}`}
+      className={`cards-table ${table.isColumnResizing() ? 'is-column-resizing' : ''} ${selection.count ? 'has-selection' : ''}`}
       style={table.tableGridStyle}
     >
       <div className="table-head">
+        <SelectAllCheckbox selection={selection} isDisabled={!filteredCards.length} />
         {visibleTableColumns.map((column) => (
           <div key={column.fieldId} className="table-head-cell" data-field-id={column.fieldId}>
             <button
@@ -77,6 +106,9 @@ export function CardsTable({
             index={index}
             visibleColumns={visibleTableColumns}
             project={project}
+            isSelected={selection.isSelected(card.id)}
+            navigation={rowNavigation(card, index)}
+            onToggleSelect={(isRange) => selection.toggle(card.id, isRange)}
             onSaveField={onSaveField}
             onOpen={onOpenCard}
           />

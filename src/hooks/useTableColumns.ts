@@ -8,6 +8,8 @@ import {
   tableMetaFieldIds,
   internalFieldName,
   defaultTableColumnWidth,
+  tableGridTemplate as gridTemplate,
+  tableGridMinWidth as gridMinWidth,
 } from '../lib/tableColumns'
 import { useColumnResize } from './useColumnResize'
 
@@ -107,11 +109,9 @@ export function useTableColumns(
   const columnWidth = (column: TableColumn) =>
     storedTableWidths?.[column.fieldId] ?? defaultTableColumnWidth(column.fieldId, column.type)
   const tableGridTemplate = hasCustomTableWidths
-    ? [...visibleTableColumns.map((column) => `${columnWidth(column)}px`), '22px'].join(' ')
-    : [...visibleTableColumns.map(defaultColumnTrack), '22px'].join(' ')
-  const tableGridMinWidth = hasCustomTableWidths
-    ? `${visibleTableColumns.reduce((sum, column) => sum + columnWidth(column), 22) + visibleTableColumns.length * 10 + 20}px`
-    : '100%'
+    ? gridTemplate(visibleTableColumns.map((column) => `${columnWidth(column)}px`))
+    : gridTemplate(visibleTableColumns.map(defaultColumnTrack))
+  const tableGridMinWidth = hasCustomTableWidths ? `${gridMinWidth(visibleTableColumns.map(columnWidth))}px` : '100%'
   const tableGridStyle = {
     '--card-grid-template': tableGridTemplate,
     '--card-grid-min-width': tableGridMinWidth,

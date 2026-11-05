@@ -49,6 +49,22 @@ export function minimumTableColumnWidth(fieldId: string) {
 
 export const maximumTableColumnWidth = 2000
 
+/** Fixed width of the selection checkbox column (first grid track, not resizable). */
+export const selectColumnWidth = 28
+const actionColumnWidth = 22
+const columnGap = 10
+const rowPadding = 20
+
+/** Full grid template: selection checkbox, the data column tracks, the open-editor chevron. */
+export const tableGridTemplate = (dataTracks: string[]) =>
+  [`${selectColumnWidth}px`, ...dataTracks, `${actionColumnWidth}px`].join(' ')
+
+/** Minimum grid width for explicit data column widths (tracks + gaps + row padding). */
+export const tableGridMinWidth = (dataWidths: number[]) =>
+  dataWidths.reduce((sum, width) => sum + width, selectColumnWidth + actionColumnWidth) +
+  (dataWidths.length + 1) * columnGap +
+  rowPadding
+
 export function guessType(header: string): NonNullable<ColumnDefinition['type']> {
   return /color|colour|colore/i.test(header)
     ? 'color'

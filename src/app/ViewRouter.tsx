@@ -104,6 +104,7 @@ export function ViewRouter(props: ViewRouterProps) {
         onSaveField={mutations.saveInlineField}
         onOpenCard={props.onOpenCard}
         sync={props.sync}
+        onCommitCards={mutations.commitCards}
       />
     )
   return (
