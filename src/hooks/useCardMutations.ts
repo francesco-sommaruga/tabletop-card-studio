@@ -13,6 +13,8 @@ export interface CommitCardsOptions {
    * resolved against them, and the columns are saved before the cards.
    */
   columns?: ColumnDefinition[]
+  /** Human-readable description of the change (Italian), shown by undo/redo. */
+  label?: string
 }
 
 /** Applies conditional rules and fills generated IDs for every card. */
