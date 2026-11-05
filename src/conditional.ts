@@ -20,6 +20,7 @@ export function resolveConditionalValues(columns: ColumnDefinition[], card: Card
     else resolved.values[fieldId] = value
   }
   for (const column of columns) {
+    if (column.type === 'id') continue
     const fallback = column.defaultValue ?? ''
     if (!column.rules?.length) {
       if (!cardFieldValue(resolved, column.fieldId).trim() && fallback) writeValue(column.fieldId, fallback)

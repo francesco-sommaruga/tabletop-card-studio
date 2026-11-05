@@ -30,7 +30,7 @@ export interface ColumnDefinition {
   header: string
   fieldLabel?: string
   fieldId: string
-  type?: 'text' | 'number' | 'select' | 'image' | 'longtext' | 'variable' | 'color'
+  type?: 'text' | 'number' | 'select' | 'image' | 'longtext' | 'variable' | 'color' | 'id'
   defaultValue?: string
   options?: string[]
   variableTags?: string[]

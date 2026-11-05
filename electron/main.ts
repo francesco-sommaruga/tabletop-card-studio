@@ -5,6 +5,7 @@ import path from 'node:path'
 import fs from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
 import ExcelJS from 'exceljs'
+import { ensureGeneratedIdValues } from '../src/generatedIds'
 import type { Card, ColumnDefinition, GitCommitFile, GitCommitSummary, GitFileStatus, GitHubAuthStatus, GitHubDeviceLogin, GitHubLoginPollResult, GitHubProjectRepository, GitStatus, ImportPlan, MarkdownDocument, MergeFieldChange, MergeFieldConflict, NativeSetInfo, ProjectAsset, ProjectIconReference, ProjectSet, ProjectSnapshot, ProjectSummary, ProjectVariable, TabletopBlueprint, WorkbookInfo, WorkbookMergePreview } from '../src/types'
 import { resolveConditionalValues } from '../src/conditional'
 import { GITHUB_APP_CLIENT_ID, GITHUB_APP_SLUG } from './github-config'
@@ -162,6 +163,13 @@ function importedFieldIdFor(header: string) {
 }
 
 function activeSet() { return sets.find((set) => set.id === activeSetId) ?? null }
+
+function ensureSetGeneratedIds(set: ProjectSet, regenerate = false) {
+  const cards = ensureGeneratedIdValues(set.cards, set.columns, randomUUID, regenerate)
+  const changed = cards !== set.cards
+  if (changed) set.cards = cards
+  return changed
+}
 
 function snapshot(): ProjectSnapshot {
   const current = activeSet()
@@ -396,9 +404,10 @@ async function readPlannedWorkbook(filePath: string, plan: ImportPlan): Promise<
       updatedAt: new Date().toISOString(),
     })
   }
+  const cardsWithIds = ensureGeneratedIdValues(cards, columns, randomUUID)
   const importMatchFieldId = titleHeader ? 'meta_title' : columns[0]?.fieldId
-  const importBaseline = cards.map((card) => ({ cardId: card.id, values: Object.fromEntries(columns.map((column) => [column.fieldId, cardFieldValue(card, column.fieldId)])) }))
-  return { id: `set_${crypto.randomUUID()}`, name: plan.name.trim() || path.parse(plan.file).name, sourceFile: path.basename(plan.file), cards, columns, importBaseline, importMatchFieldId }
+  const importBaseline = cardsWithIds.map((card) => ({ cardId: card.id, values: Object.fromEntries(columns.map((column) => [column.fieldId, cardFieldValue(card, column.fieldId)])) }))
+  return { id: `set_${crypto.randomUUID()}`, name: plan.name.trim() || path.parse(plan.file).name, sourceFile: path.basename(plan.file), cards: cardsWithIds, columns, importBaseline, importMatchFieldId }
 }
 
 async function readWorkbookRowsForSet(filePath: string, set: ProjectSet): Promise<{ cards: Card[]; importedFieldIds: string[] }> {
@@ -581,6 +590,7 @@ async function applyWorkbookMerge(token: string, resolutions: Record<string, 'ex
   }
   set.cards.push(...addedCards)
   set.cards = set.cards.map((card) => resolveConditionalValues(set.columns, card))
+  ensureSetGeneratedIds(set)
   set.importBaseline = [...baselineByCardId].map(([cardId, values]) => ({ cardId, values }))
   set.importMatchFieldId = pending.matchFieldId
   if (set.blueprintName) synchronizeBlueprintFields(set.blueprintName, set.columns)
@@ -847,7 +857,7 @@ function synchronizeBlueprintFields(blueprintName: string, preferredColumns?: Co
   const columns = mergeColumnDefinitions(...(preferredColumns ? [preferredColumns] : []), ...groupedSets.map((set) => set.columns))
   for (const set of groupedSets) {
     set.columns = structuredClone(columns)
-    set.cards = set.cards.map((card) => hydrateNativeValues(card, columns))
+    set.cards = ensureGeneratedIdValues(set.cards.map((card) => hydrateNativeValues(card, columns)), columns, randomUUID)
   }
   return columns
 }
@@ -856,7 +866,7 @@ function replaceBlueprintFields(blueprintName: string, columns: ColumnDefinition
   const groupedSets = sets.filter((set) => set.blueprintName === blueprintName)
   for (const set of groupedSets) {
     set.columns = structuredClone(columns)
-    set.cards = set.cards.map((card) => hydrateNativeValues(card, columns))
+    set.cards = ensureGeneratedIdValues(set.cards.map((card) => hydrateNativeValues(card, columns)), columns, randomUUID)
   }
   return columns
 }
@@ -1045,7 +1055,9 @@ async function openProject(folder: string): Promise<ProjectSnapshot> {
   nativeSets = await scanNativeSets()
   await fs.mkdir(storeDir, { recursive: true })
   await upgradeNativeSetHashes()
-  if (normalizeBlueprintFieldSets()) await persistSets(false)
+  const blueprintsNormalized = normalizeBlueprintFieldSets()
+  const idsNormalized = sets.reduce((changed, set) => ensureSetGeneratedIds(set) || changed, false)
+  if (blueprintsNormalized || idsNormalized) await persistSets(false)
   await logLinkedNativeHashDrifts()
   await persistProjectList()
   return snapshot()
@@ -1087,6 +1099,7 @@ async function connectNativeSet(setId: string, file: string, index: number): Pro
   })
   target.cards = cards
   target.columns = columns
+  ensureSetGeneratedIds(target)
   target.blueprintName = nativeBlueprintName
   target.nativeSetFile = safeFile
   target.nativeSetIndex = index
@@ -1221,6 +1234,7 @@ async function duplicateProjectSet(setId: string): Promise<ProjectSnapshot> {
     nativeSetIndex: undefined,
     nativeSetHash: undefined,
   }
+  duplicate.cards = ensureGeneratedIdValues(duplicate.cards, duplicate.columns, randomUUID, true)
   if (source.nativeSetFile && source.nativeSetIndex !== undefined) {
     const sourceFile = path.basename(source.nativeSetFile)
     const sourcePath = path.join(activeProject, 'data', 'sets', sourceFile)
@@ -1241,7 +1255,10 @@ async function duplicateProjectSet(setId: string): Promise<ProjectSnapshot> {
     nativeCopy.name = nativeName
     nativeCopy.hint_order_index = nativeSets.length
     const nativeItems = Array.isArray(nativeCopy.items) ? nativeCopy.items : []
-    duplicate.cards.forEach((card, index) => { card.nativeItem = JSON.parse(JSON.stringify(nativeItems[index] ?? card.nativeItem ?? {})) })
+    duplicate.cards = duplicate.cards.map((card, index) => ({ ...card, nativeItem: JSON.parse(JSON.stringify(nativeItems[index] ?? card.nativeItem ?? {})) }))
+    const copiedNativeItems = duplicate.cards.map((card) => nativeItemFromCard(card, duplicate.columns))
+    nativeCopy.items = copiedNativeItems
+    duplicate.cards.forEach((card, index) => { card.nativeItem = JSON.parse(JSON.stringify(copiedNativeItems[index])) })
     const nativeDocument = { ...document, sets: [nativeCopy] }
     const serialized = JSON.stringify(nativeDocument, null, 2)
     const directory = path.join(activeProject, 'data', 'sets')
@@ -1287,6 +1304,7 @@ async function moveCardBetweenSets(cardId: string, targetSetId: string, draft?: 
   source.cards.splice(index, 1)
   const targetTemplate = target.cards[0]?.nativeItem
   target.cards.push({ ...card, values, nativeItem: targetTemplate ? JSON.parse(JSON.stringify(targetTemplate)) : undefined, updatedAt: new Date().toISOString() })
+  ensureSetGeneratedIds(target)
   activeSetId = target.id
   await persistSets()
   return snapshot()
@@ -2015,7 +2033,7 @@ app.whenReady().then(() => {
   registerLoggedHandler('cards:save', async (nextCards: Card[]) => {
     const current = activeSet()
     if (!current) return
-    current.cards = nextCards
+    current.cards = ensureGeneratedIdValues(nextCards, current.columns, randomUUID)
     await persistSets()
   })
   registerLoggedHandler('columns:save', async (nextColumns: ColumnDefinition[]) => {
@@ -2023,10 +2041,10 @@ app.whenReady().then(() => {
     if (!current) return
     if (current.blueprintName) {
       const columns = replaceBlueprintFields(current.blueprintName, nextColumns)
-      for (const set of sets.filter((item) => item.blueprintName === current.blueprintName)) set.cards = set.cards.map((card) => resolveConditionalValues(columns, card))
+      for (const set of sets.filter((item) => item.blueprintName === current.blueprintName)) set.cards = ensureGeneratedIdValues(set.cards.map((card) => resolveConditionalValues(columns, card)), columns, randomUUID)
     } else {
       current.columns = nextColumns
-      current.cards = current.cards.map((card) => resolveConditionalValues(nextColumns, card))
+      current.cards = ensureGeneratedIdValues(current.cards.map((card) => resolveConditionalValues(nextColumns, card)), nextColumns, randomUUID)
     }
     await persistSets()
   })
