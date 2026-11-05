@@ -1,4 +1,3 @@
-import { Check } from 'lucide-react'
 import type { ShellContext } from './hooks/shellContext'
 import { useProjectSession } from './hooks/useProjectSession'
 import { useToast } from './hooks/useToast'
@@ -14,16 +13,18 @@ import { useExport } from './hooks/useExport'
 import { useNativeSetLink } from './hooks/useNativeSetLink'
 import { useSetActions } from './hooks/useSetActions'
 import { useProjectActions } from './hooks/useProjectActions'
+import { useUndoShortcuts } from './hooks/useUndoShortcuts'
 import { Sidebar } from './app/Sidebar'
 import { TopBar } from './app/TopBar'
 import { ViewRouter } from './app/ViewRouter'
 import { AppDialogs } from './app/AppDialogs'
 import { useNativeSync } from './hooks/useNativeSync'
+import { ToastMessage } from './app/ToastMessage'
 
 function App() {
   const session = useProjectSession()
   const { snapshot, setSnapshot, refreshProjects, activeSet } = session
-  const { toast, setToast } = useToast()
+  const { toast, setToast, dismissToast } = useToast()
   useDiagnosticsReporting()
   const { fieldsDirty, setFieldsDirty, confirmDiscardFields } = useDirtyGuard()
   const { view, setView, navigateView, selected, setSelected } = useAppNavigation(confirmDiscardFields)
@@ -43,6 +44,7 @@ function App() {
   }
   const mutations = useCardMutations(ctx)
   const sync = useNativeSync(ctx)
+  useUndoShortcuts(mutations, view === 'cards' && Boolean(activeSet))
   const importFlow = useImportFlow(ctx)
   const exportFlow = useExport(setToast)
   const native = useNativeSetLink(ctx)
@@ -126,12 +128,7 @@ function App() {
         sets={sets}
         project={project}
       />
-      {toast && (
-        <div className="toast">
-          <Check size={15} />
-          {toast}
-        </div>
-      )}
+      {toast && <ToastMessage toast={toast} onDismiss={dismissToast} />}
     </div>
   )
 }

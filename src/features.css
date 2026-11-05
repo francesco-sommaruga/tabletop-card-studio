@@ -7096,3 +7096,21 @@
 .native-sync-dot.is-error {
   background: #8d4c36;
 }
+
+/* Toast action, e.g. "Ripristina" after an undo */
+.toast-action {
+  margin-left: 7px;
+  padding: 4px 9px;
+  border: 1px solid #5c554b;
+  border-radius: 3px;
+  background: transparent;
+  color: #f2c9ad;
+  font:
+    600 11px 'DM Sans',
+    sans-serif;
+  cursor: pointer;
+}
+.toast-action:hover {
+  background: #4a443c;
+  border-color: #786f63;
+}

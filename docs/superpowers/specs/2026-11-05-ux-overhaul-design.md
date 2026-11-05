@@ -81,7 +81,9 @@ A three-way "compare" UI is out of scope (YAGNI): the two actions plus the autom
 - History lives in the renderer inside `commitCards`: stack of `{ setId, label, before: Card[], after: Card[] }`, max 50, redo stack cleared on new commit, both cleared when the project changes. Entries for another set are skipped/dropped when undoing (only undo the active set; switching set keeps its own stack — keyed by setId).
 - Undo = `saveCards(before)`; redo = `saveCards(after)`. Toast "Annullato: <label>" with a **Ripristina** action.
 - Shortcuts: Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl+Y — ignored while focus is in an input/textarea/contenteditable (native text undo wins there).
-- Scope: card changes only (inline edit, editor save, create, delete, move out of set, bulk edits). Columns, variables, imports and Git are not undoable.
+- Scope: card changes only (inline edit, editor save, create, delete, bulk edits). Columns, variables, imports and Git are not undoable. Moving a card to another set is not undoable either (cross-set, goes through `moveCard`, not the funnel; YAGNI).
+- A columns save clears the history of the active set (old snapshots may not fit the new columns). Undo/redo refuses, and drops the set's history, when the set's cards no longer equal the entry's expected state (changed outside the funnel: move, import, merge, native reload).
+- Shortcuts are active on the cards view only, also ignored while a dialog other than the card editor is open; checkboxes/buttons do not count as text fields.
 - Card editor: **precedente/successiva** buttons following the current filtered/sorted order, Alt+↑/↓ shortcut, Ctrl/Cmd+S saves. Navigating with unsaved changes saves first (undoable).
 
 ### B. Bulk edit + table keyboard navigation
