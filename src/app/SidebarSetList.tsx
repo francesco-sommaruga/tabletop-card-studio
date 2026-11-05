@@ -1,9 +1,16 @@
 import { BookOpen, Copy, Pencil, Trash2 } from 'lucide-react'
 import type { SetSummary } from '../hooks/useProjectSession'
+import type { NativeSyncStatus } from '../types'
+
+const syncDotTitle: Record<Exclude<NativeSyncStatus, 'synced'>, string> = {
+  conflict: 'Conflitto con Tabletop Creator',
+  error: 'Errore di sincronizzazione con Tabletop Creator',
+}
 
 export function SidebarSetList({
   sets,
   activeSetId,
+  nativeSync,
   onChoose,
   onDuplicate,
   onRename,
@@ -11,6 +18,7 @@ export function SidebarSetList({
 }: {
   sets: SetSummary[]
   activeSetId: string | null
+  nativeSync: Record<string, NativeSyncStatus>
   onChoose: (id: string) => void
   onDuplicate: (id: string) => void
   onRename: (id: string, name: string) => void
@@ -28,6 +36,12 @@ export function SidebarSetList({
               <strong>{set.name}</strong>
               <small>{set.nativeSetFile ? `TC · ${set.nativeSetFile}` : set.sourceFile || 'Creato qui'}</small>
             </span>
+            {nativeSync[set.id] && nativeSync[set.id] !== 'synced' && (
+              <span
+                className={`native-sync-dot ${nativeSync[set.id] === 'error' ? 'is-error' : ''}`}
+                title={syncDotTitle[nativeSync[set.id] as Exclude<NativeSyncStatus, 'synced'>]}
+              />
+            )}
             <span className="set-count">{set.cardCount}</span>
           </button>
           <button

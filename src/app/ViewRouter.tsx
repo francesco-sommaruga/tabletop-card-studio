@@ -15,6 +15,7 @@ import { ProjectSettingsPage } from '../views/ProjectSettingsPage'
 import { StatisticsPage } from '../views/StatisticsPage'
 import { ColumnsPage } from '../views/ColumnsPage'
 import { CardsView } from '../views/cards/CardsView'
+import type { NativeSync } from '../hooks/useNativeSync'
 import { ImportLanding } from '../components/import/ImportLanding'
 import { GitHubView } from './GitHubView'
 
@@ -27,6 +28,7 @@ export interface ViewRouterProps {
   mutations: CardMutations
   project: ProjectActions
   native: NativeSetLink
+  sync: NativeSync
   onImport: () => void
   onExport: () => void
   onCreateSet: () => void
@@ -101,6 +103,7 @@ export function ViewRouter(props: ViewRouterProps) {
         onImport={props.onImport}
         onSaveField={mutations.saveInlineField}
         onOpenCard={props.onOpenCard}
+        sync={props.sync}
       />
     )
   return (

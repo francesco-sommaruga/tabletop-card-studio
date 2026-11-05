@@ -112,7 +112,7 @@ export function AppDialogs(props: AppDialogsProps) {
           onSave={sets.saveSetName}
         />
       )}
-      {conflict && (
+      {conflict && snapshot?.nativeSync[conflict.set.id] !== 'conflict' && (
         <NativeNameConflictDialog
           cmsName={conflict.set.name}
           nativeName={conflict.native!.name}

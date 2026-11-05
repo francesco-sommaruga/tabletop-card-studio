@@ -18,6 +18,7 @@ import { Sidebar } from './app/Sidebar'
 import { TopBar } from './app/TopBar'
 import { ViewRouter } from './app/ViewRouter'
 import { AppDialogs } from './app/AppDialogs'
+import { useNativeSync } from './hooks/useNativeSync'
 
 function App() {
   const session = useProjectSession()
@@ -41,6 +42,7 @@ function App() {
     refreshProjects,
   }
   const mutations = useCardMutations(ctx)
+  const sync = useNativeSync(ctx)
   const importFlow = useImportFlow(ctx)
   const exportFlow = useExport(setToast)
   const native = useNativeSetLink(ctx)
@@ -101,6 +103,7 @@ function App() {
           filters={filters}
           table={table}
           git={git}
+          sync={sync}
           mutations={mutations}
           project={project}
           native={native}

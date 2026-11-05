@@ -6,6 +6,8 @@ import type { TableColumns } from '../../hooks/useTableColumns'
 import { CardsOverview } from './CardsOverview'
 import { CardsToolbar } from './CardsToolbar'
 import { CardsTable } from './CardsTable'
+import { NativeSyncBanner } from '../../components/sync/NativeSyncBanner'
+import type { NativeSync } from '../../hooks/useNativeSync'
 
 /** The active set's cards page: heading, stats strip, archive toolbar and table. */
 export function CardsView({
@@ -17,6 +19,7 @@ export function CardsView({
   onImport,
   onSaveField,
   onOpenCard,
+  sync,
 }: {
   snapshot: ProjectSnapshot
   activeSet: SetSummary
@@ -26,10 +29,19 @@ export function CardsView({
   onImport: () => void
   onSaveField: (card: Card, fieldId: string, value: string) => void
   onOpenCard: (card: Card) => void
+  sync: NativeSync
 }) {
   const { cards } = snapshot
   return (
     <div className="page-content">
+      {snapshot.nativeSync[activeSet.id] === 'conflict' && (
+        <NativeSyncBanner
+          setName={activeSet.name}
+          busy={sync.isResolving}
+          onReload={() => void sync.resolve(activeSet.id, 'reload')}
+          onOverwrite={() => void sync.resolve(activeSet.id, 'overwrite')}
+        />
+      )}
       <div className="page-heading">
         <div>
           <div className="eyebrow">

@@ -53,6 +53,7 @@ export function Sidebar(props: SidebarProps) {
       <SidebarSetList
         sets={snapshot.sets}
         activeSetId={snapshot.activeSetId}
+        nativeSync={snapshot.nativeSync}
         onChoose={props.onChooseSet}
         onDuplicate={props.onDuplicateSet}
         onRename={props.onRenameSet}
