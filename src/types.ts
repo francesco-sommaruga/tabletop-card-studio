@@ -255,7 +255,11 @@ export interface ProjectSnapshot {
   projectName: string
   cards: Card[]
   columns: ColumnDefinition[]
-  sets: Array<Pick<ProjectSet, 'id' | 'name' | 'sourceFile' | 'nativeSetFile' | 'nativeSetIndex' | 'blueprintName'> & { cardCount: number }>
+  sets: Array<
+    Pick<ProjectSet, 'id' | 'name' | 'sourceFile' | 'nativeSetFile' | 'nativeSetIndex' | 'blueprintName'> & {
+      cardCount: number
+    }
+  >
   activeSetId: string | null
   workbooks: WorkbookInfo[]
   assets: ProjectAsset[]
@@ -276,12 +280,21 @@ export interface CardCmsApi {
   saveColumns: (columns: ColumnDefinition[]) => Promise<void>
   saveVariables: (variables: ProjectVariable[]) => Promise<ProjectSnapshot>
   resolveIcon: (reference: string) => Promise<string | null>
-  searchIcons: (query: string, library: 'all' | 'tabletop' | 'project') => Promise<{ items: ProjectIconReference[]; total: number }>
+  searchIcons: (
+    query: string,
+    library: 'all' | 'tabletop' | 'project',
+  ) => Promise<{ items: ProjectIconReference[]; total: number }>
   selectSet: (id: string) => Promise<ProjectSnapshot>
   renameSet: (id: string, name: string) => Promise<ProjectSnapshot>
   deleteSet: (id: string) => Promise<ProjectSnapshot>
   importWorkbooks: (plans: ImportPlan[]) => Promise<ProjectSnapshot>
-  previewWorkbookMerge: (file: string, setId: string, matchFieldId?: string, fieldIds?: string[], restoreFieldIds?: string[]) => Promise<WorkbookMergePreview>
+  previewWorkbookMerge: (
+    file: string,
+    setId: string,
+    matchFieldId?: string,
+    fieldIds?: string[],
+    restoreFieldIds?: string[],
+  ) => Promise<WorkbookMergePreview>
   applyWorkbookMerge: (token: string, resolutions: Record<string, 'excel' | 'set'>) => Promise<ProjectSnapshot>
   createSet: (name: string) => Promise<ProjectSnapshot>
   scanWorkbooks: () => Promise<WorkbookInfo[]>
@@ -327,5 +340,7 @@ export interface CardCmsApi {
 }
 
 declare global {
-  interface Window { cardCms: CardCmsApi }
+  interface Window {
+    cardCms: CardCmsApi
+  }
 }

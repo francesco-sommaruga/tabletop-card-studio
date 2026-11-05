@@ -1,5 +1,24 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { Card, ColumnDefinition, GitCommitFile, GitHubAuthStatus, GitHubDeviceLogin, GitHubLoginPollResult, GitHubProjectRepository, GitHubRepositoryResult, GitStatus, ImportPlan, MarkdownDocument, ProjectSnapshot, ProjectAsset, ProjectIconReference, ProjectSummary, ProjectVariable, WorkbookInfo, WorkbookMergePreview } from '../src/types'
+import type {
+  Card,
+  ColumnDefinition,
+  GitCommitFile,
+  GitHubAuthStatus,
+  GitHubDeviceLogin,
+  GitHubLoginPollResult,
+  GitHubProjectRepository,
+  GitHubRepositoryResult,
+  GitStatus,
+  ImportPlan,
+  MarkdownDocument,
+  ProjectSnapshot,
+  ProjectAsset,
+  ProjectIconReference,
+  ProjectSummary,
+  ProjectVariable,
+  WorkbookInfo,
+  WorkbookMergePreview,
+} from '../src/types'
 
 contextBridge.exposeInMainWorld('cardCms', {
   onNotice: (callback: (message: string) => void) => {
@@ -8,29 +27,53 @@ contextBridge.exposeInMainWorld('cardCms', {
     return () => ipcRenderer.removeListener('app:notice', listener)
   },
   openDiagnosticLog: () => ipcRenderer.invoke('diagnostics:open') as Promise<string>,
-  writeDiagnostic: (event: string, details?: Record<string, string | number | boolean | undefined>) => ipcRenderer.invoke('diagnostics:renderer', event, details) as Promise<void>,
+  writeDiagnostic: (event: string, details?: Record<string, string | number | boolean | undefined>) =>
+    ipcRenderer.invoke('diagnostics:renderer', event, details) as Promise<void>,
   openProject: () => ipcRenderer.invoke('project:open') as Promise<ProjectSnapshot | null>,
-  openProjectPath: (projectPath: string) => ipcRenderer.invoke('project:open-path', projectPath) as Promise<ProjectSnapshot | null>,
+  openProjectPath: (projectPath: string) =>
+    ipcRenderer.invoke('project:open-path', projectPath) as Promise<ProjectSnapshot | null>,
   loadRecent: () => ipcRenderer.invoke('project:recent') as Promise<ProjectSnapshot | null>,
   listProjects: () => ipcRenderer.invoke('projects:list') as Promise<ProjectSummary[]>,
   saveCards: (cards: Card[]) => ipcRenderer.invoke('cards:save', cards) as Promise<void>,
   saveColumns: (columns: ColumnDefinition[]) => ipcRenderer.invoke('columns:save', columns) as Promise<void>,
-  saveVariables: (variables: ProjectVariable[]) => ipcRenderer.invoke('variables:save', variables) as Promise<ProjectSnapshot>,
+  saveVariables: (variables: ProjectVariable[]) =>
+    ipcRenderer.invoke('variables:save', variables) as Promise<ProjectSnapshot>,
   resolveIcon: (reference: string) => ipcRenderer.invoke('icons:resolve', reference) as Promise<string | null>,
-  searchIcons: (query: string, library: 'all' | 'tabletop' | 'project') => ipcRenderer.invoke('icons:search', query, library) as Promise<{ items: ProjectIconReference[]; total: number }>,
+  searchIcons: (query: string, library: 'all' | 'tabletop' | 'project') =>
+    ipcRenderer.invoke('icons:search', query, library) as Promise<{ items: ProjectIconReference[]; total: number }>,
   selectSet: (id: string) => ipcRenderer.invoke('sets:select', id) as Promise<ProjectSnapshot>,
-  linkNativeSet: (setId: string, file: string, index: number) => ipcRenderer.invoke('sets:link-native', setId, file, index) as Promise<ProjectSnapshot>,
-  createNativeSet: (setId: string, name: string, blueprintName: string) => ipcRenderer.invoke('sets:create-native', setId, name, blueprintName) as Promise<ProjectSnapshot>,
-  resolveNativeSetNameConflict: (setId: string, resolution: 'card-studio' | 'tabletop') => ipcRenderer.invoke('sets:resolve-name-conflict', setId, resolution) as Promise<ProjectSnapshot>,
+  linkNativeSet: (setId: string, file: string, index: number) =>
+    ipcRenderer.invoke('sets:link-native', setId, file, index) as Promise<ProjectSnapshot>,
+  createNativeSet: (setId: string, name: string, blueprintName: string) =>
+    ipcRenderer.invoke('sets:create-native', setId, name, blueprintName) as Promise<ProjectSnapshot>,
+  resolveNativeSetNameConflict: (setId: string, resolution: 'card-studio' | 'tabletop') =>
+    ipcRenderer.invoke('sets:resolve-name-conflict', setId, resolution) as Promise<ProjectSnapshot>,
   unlinkNativeSet: (setId: string) => ipcRenderer.invoke('sets:unlink-native', setId) as Promise<ProjectSnapshot>,
-  saveBlueprintAssignments: (assignments: Record<string, string>) => ipcRenderer.invoke('blueprints:assignments-save', assignments) as Promise<ProjectSnapshot>,
+  saveBlueprintAssignments: (assignments: Record<string, string>) =>
+    ipcRenderer.invoke('blueprints:assignments-save', assignments) as Promise<ProjectSnapshot>,
   duplicateSet: (setId: string) => ipcRenderer.invoke('sets:duplicate', setId) as Promise<ProjectSnapshot>,
-  moveCard: (cardId: string, targetSetId: string) => ipcRenderer.invoke('cards:move', cardId, targetSetId) as Promise<ProjectSnapshot>,
+  moveCard: (cardId: string, targetSetId: string) =>
+    ipcRenderer.invoke('cards:move', cardId, targetSetId) as Promise<ProjectSnapshot>,
   renameSet: (id: string, name: string) => ipcRenderer.invoke('sets:rename', id, name) as Promise<ProjectSnapshot>,
   deleteSet: (id: string) => ipcRenderer.invoke('sets:delete', id) as Promise<ProjectSnapshot>,
   importWorkbooks: (plans: ImportPlan[]) => ipcRenderer.invoke('workbooks:import', plans) as Promise<ProjectSnapshot>,
-  previewWorkbookMerge: (file: string, setId: string, matchFieldId?: string, fieldIds?: string[], restoreFieldIds?: string[]) => ipcRenderer.invoke('workbooks:merge-preview', file, setId, matchFieldId, fieldIds, restoreFieldIds) as Promise<WorkbookMergePreview>,
-  applyWorkbookMerge: (token: string, resolutions: Record<string, 'excel' | 'set'>) => ipcRenderer.invoke('workbooks:merge-apply', token, resolutions) as Promise<ProjectSnapshot>,
+  previewWorkbookMerge: (
+    file: string,
+    setId: string,
+    matchFieldId?: string,
+    fieldIds?: string[],
+    restoreFieldIds?: string[],
+  ) =>
+    ipcRenderer.invoke(
+      'workbooks:merge-preview',
+      file,
+      setId,
+      matchFieldId,
+      fieldIds,
+      restoreFieldIds,
+    ) as Promise<WorkbookMergePreview>,
+  applyWorkbookMerge: (token: string, resolutions: Record<string, 'excel' | 'set'>) =>
+    ipcRenderer.invoke('workbooks:merge-apply', token, resolutions) as Promise<ProjectSnapshot>,
   createSet: (name: string) => ipcRenderer.invoke('sets:create', name) as Promise<ProjectSnapshot>,
   scanWorkbooks: () => ipcRenderer.invoke('workbooks:scan') as Promise<WorkbookInfo[]>,
   importAssets: () => ipcRenderer.invoke('assets:import') as Promise<ProjectAsset[]>,
@@ -41,28 +84,36 @@ contextBridge.exposeInMainWorld('cardCms', {
   gitPull: () => ipcRenderer.invoke('git:pull') as Promise<GitStatus>,
   gitPush: () => ipcRenderer.invoke('git:push') as Promise<GitStatus>,
   gitSwitchBranch: (name: string) => ipcRenderer.invoke('git:branch-switch', name) as Promise<GitStatus>,
-  gitCreateBranch: (name: string, commit?: string) => ipcRenderer.invoke('git:branch-create', name, commit) as Promise<GitStatus>,
+  gitCreateBranch: (name: string, commit?: string) =>
+    ipcRenderer.invoke('git:branch-create', name, commit) as Promise<GitStatus>,
   gitDeleteBranch: (name: string) => ipcRenderer.invoke('git:branch-delete', name) as Promise<GitStatus>,
   githubAuthStatus: () => ipcRenderer.invoke('github:auth-status') as Promise<GitHubAuthStatus>,
   githubStartLogin: () => ipcRenderer.invoke('github:login-start') as Promise<GitHubDeviceLogin>,
   githubPollLogin: () => ipcRenderer.invoke('github:login-poll') as Promise<GitHubLoginPollResult>,
   githubCancelLogin: () => ipcRenderer.invoke('github:login-cancel') as Promise<void>,
   githubLogout: () => ipcRenderer.invoke('github:logout') as Promise<GitHubAuthStatus>,
-  githubCreateRepository: (name: string, isPrivate: boolean) => ipcRenderer.invoke('github:repo-create', name, isPrivate) as Promise<GitHubRepositoryResult>,
-  githubListProjectRepositories: () => ipcRenderer.invoke('github:project-repos-list') as Promise<GitHubProjectRepository[]>,
-  githubCloneProjectRepository: (fullName: string) => ipcRenderer.invoke('github:project-repo-clone', fullName) as Promise<ProjectSnapshot | null>,
+  githubCreateRepository: (name: string, isPrivate: boolean) =>
+    ipcRenderer.invoke('github:repo-create', name, isPrivate) as Promise<GitHubRepositoryResult>,
+  githubListProjectRepositories: () =>
+    ipcRenderer.invoke('github:project-repos-list') as Promise<GitHubProjectRepository[]>,
+  githubCloneProjectRepository: (fullName: string) =>
+    ipcRenderer.invoke('github:project-repo-clone', fullName) as Promise<ProjectSnapshot | null>,
   openGitHubDeviceLogin: () => ipcRenderer.invoke('github:login-open') as Promise<void>,
   openGitHubAppInstall: () => ipcRenderer.invoke('github:install-open') as Promise<void>,
   openGitHubRepository: (url: string) => ipcRenderer.invoke('github:repository-open', url) as Promise<void>,
   gitCommitFiles: (hash: string) => ipcRenderer.invoke('git:commit-files', hash) as Promise<string[]>,
-  gitCommitFile: (hash: string, file: string) => ipcRenderer.invoke('git:commit-file', hash, file) as Promise<GitCommitFile>,
+  gitCommitFile: (hash: string, file: string) =>
+    ipcRenderer.invoke('git:commit-file', hash, file) as Promise<GitCommitFile>,
   markdownList: () => ipcRenderer.invoke('markdown:list') as Promise<string[]>,
   markdownRead: (file: string) => ipcRenderer.invoke('markdown:read', file) as Promise<MarkdownDocument>,
-  markdownSave: (file: string, content: string) => ipcRenderer.invoke('markdown:save', file, content) as Promise<MarkdownDocument>,
+  markdownSave: (file: string, content: string) =>
+    ipcRenderer.invoke('markdown:save', file, content) as Promise<MarkdownDocument>,
   markdownCreate: (file: string) => ipcRenderer.invoke('markdown:create', file) as Promise<MarkdownDocument>,
-  markdownRename: (file: string, newName: string) => ipcRenderer.invoke('markdown:rename', file, newName) as Promise<MarkdownDocument>,
+  markdownRename: (file: string, newName: string) =>
+    ipcRenderer.invoke('markdown:rename', file, newName) as Promise<MarkdownDocument>,
   markdownDelete: (file: string) => ipcRenderer.invoke('markdown:delete', file) as Promise<void>,
   reloadBlueprints: () => ipcRenderer.invoke('blueprints:reload') as Promise<ProjectSnapshot>,
   openGitHub: () => ipcRenderer.invoke('github:open') as Promise<void>,
-  exportExcel: (cardIds?: string[]) => ipcRenderer.invoke('project:export', cardIds) as Promise<{ path: string; count: number } | null>,
+  exportExcel: (cardIds?: string[]) =>
+    ipcRenderer.invoke('project:export', cardIds) as Promise<{ path: string; count: number } | null>,
 })

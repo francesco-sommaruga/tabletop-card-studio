@@ -6,7 +6,12 @@ export function supportsGeneratedId(fieldId: string) {
   return !reservedCardFieldIds.has(fieldId)
 }
 
-export function ensureGeneratedIdValues(cards: Card[], columns: ColumnDefinition[], createId: () => string, regenerate = false): Card[] {
+export function ensureGeneratedIdValues(
+  cards: Card[],
+  columns: ColumnDefinition[],
+  createId: () => string,
+  regenerate = false,
+): Card[] {
   const idColumns = columns.filter((column) => column.type === 'id' && supportsGeneratedId(column.fieldId))
   if (!idColumns.length || !cards.length) return cards
 
@@ -39,5 +44,5 @@ export function ensureGeneratedIdValues(cards: Card[], columns: ColumnDefinition
   }
 
   if (!changedCards.size) return cards
-  return cards.map((card, index) => changedCards.has(index) ? { ...card, values: nextValues[index] } : card)
+  return cards.map((card, index) => (changedCards.has(index) ? { ...card, values: nextValues[index] } : card))
 }

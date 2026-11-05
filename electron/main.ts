@@ -6,7 +6,32 @@ import fs from 'node:fs/promises'
 import { existsSync, readFileSync } from 'node:fs'
 import ExcelJS from 'exceljs'
 import { ensureGeneratedIdValues } from '../src/generatedIds'
-import type { Card, ColumnDefinition, GitCommitFile, GitCommitSummary, GitFileStatus, GitHubAuthStatus, GitHubDeviceLogin, GitHubLoginPollResult, GitHubProjectRepository, GitStatus, ImportPlan, MarkdownDocument, MergeFieldChange, MergeFieldConflict, NativeSetInfo, ProjectAsset, ProjectIconReference, ProjectSet, ProjectSnapshot, ProjectSummary, ProjectVariable, TabletopBlueprint, WorkbookInfo, WorkbookMergePreview } from '../src/types'
+import type {
+  Card,
+  ColumnDefinition,
+  GitCommitFile,
+  GitCommitSummary,
+  GitFileStatus,
+  GitHubAuthStatus,
+  GitHubDeviceLogin,
+  GitHubLoginPollResult,
+  GitHubProjectRepository,
+  GitStatus,
+  ImportPlan,
+  MarkdownDocument,
+  MergeFieldChange,
+  MergeFieldConflict,
+  NativeSetInfo,
+  ProjectAsset,
+  ProjectIconReference,
+  ProjectSet,
+  ProjectSnapshot,
+  ProjectSummary,
+  ProjectVariable,
+  TabletopBlueprint,
+  WorkbookInfo,
+  WorkbookMergePreview,
+} from '../src/types'
 import { resolveConditionalValues } from '../src/conditional'
 import { GITHUB_APP_CLIENT_ID, GITHUB_APP_SLUG } from './github-config'
 
@@ -23,8 +48,19 @@ let nativeSets: NativeSetInfo[] = []
 let diagnosticQueue: Promise<void> = Promise.resolve()
 const notifiedNativeSyncSkips = new Set<string>()
 let iconCatalogCache: { projectPath: string; roots: string; icons: ProjectIconReference[] } | null = null
-const pendingMerges = new Map<string, { setId: string; matchFieldId: string; incoming: Card[]; selectedFieldIds: string[]; baselineFieldIds: string[]; restoreColumns: ColumnDefinition[] }>()
-let pendingGithubLogin: { deviceCode: string; intervalSeconds: number; nextPollAt: number; expiresAt: number } | null = null
+const pendingMerges = new Map<
+  string,
+  {
+    setId: string
+    matchFieldId: string
+    incoming: Card[]
+    selectedFieldIds: string[]
+    baselineFieldIds: string[]
+    restoreColumns: ColumnDefinition[]
+  }
+>()
+let pendingGithubLogin: { deviceCode: string; intervalSeconds: number; nextPollAt: number; expiresAt: number } | null =
+  null
 const dataDirName = '.tabletop-card-studio'
 const defaultColumns: ColumnDefinition[] = [
   { id: 'column_title', header: 'title', fieldId: 'meta_title', type: 'text' },
@@ -36,12 +72,23 @@ function diagnosticFilePath() {
 }
 
 function writeDiagnostic(level: 'info' | 'error', event: string, details: Record<string, unknown> = {}) {
-  const record = JSON.stringify({ timestamp: new Date().toISOString(), level, event, projectPath: activeProject || undefined, ...details }) + '\n'
-  diagnosticQueue = diagnosticQueue.then(async () => {
-    const file = diagnosticFilePath()
-    await fs.mkdir(path.dirname(file), { recursive: true })
-    await fs.appendFile(file, record, 'utf8')
-  }).catch((error) => { console.error('Card Studio diagnostic log failed:', error) })
+  const record =
+    JSON.stringify({
+      timestamp: new Date().toISOString(),
+      level,
+      event,
+      projectPath: activeProject || undefined,
+      ...details,
+    }) + '\n'
+  diagnosticQueue = diagnosticQueue
+    .then(async () => {
+      const file = diagnosticFilePath()
+      await fs.mkdir(path.dirname(file), { recursive: true })
+      await fs.appendFile(file, record, 'utf8')
+    })
+    .catch((error) => {
+      console.error('Card Studio diagnostic log failed:', error)
+    })
   return diagnosticQueue
 }
 
@@ -49,13 +96,20 @@ function summarizeDiagnosticArgs(channel: string, args: unknown[]) {
   if (channel === 'cards:save') return { cardCount: Array.isArray(args[0]) ? args[0].length : undefined }
   if (channel === 'columns:save') return { columnCount: Array.isArray(args[0]) ? args[0].length : undefined }
   if (channel === 'cards:move') return { cardId: args[0], targetSetId: args[1] }
-  if (channel === 'blueprints:assignments-save') return { setIds: args[0] && typeof args[0] === 'object' ? Object.keys(args[0] as object) : [] }
+  if (channel === 'blueprints:assignments-save')
+    return { setIds: args[0] && typeof args[0] === 'object' ? Object.keys(args[0] as object) : [] }
   if (channel === 'sets:link-native') return { setId: args[0], file: args[1], index: args[2] }
   if (channel === 'sets:create-native') return { setId: args[0], name: args[1], blueprintName: args[2] }
   if (channel === 'sets:resolve-name-conflict') return { setId: args[0], resolution: args[1] }
   if (channel === 'sets:rename') return { setId: args[0], name: args[1] }
   if (channel === 'sets:create') return { name: args[0] }
-  if (channel === 'sets:select' || channel === 'sets:unlink-native' || channel === 'sets:duplicate' || channel === 'sets:delete') return { setId: args[0] }
+  if (
+    channel === 'sets:select' ||
+    channel === 'sets:unlink-native' ||
+    channel === 'sets:duplicate' ||
+    channel === 'sets:delete'
+  )
+    return { setId: args[0] }
   return {}
 }
 
@@ -64,7 +118,12 @@ function registerLoggedHandler(channel: string, handler: (...args: any[]) => unk
     const operationId = crypto.randomUUID()
     const details = summarizeDiagnosticArgs(channel, args)
     const startedAt = Date.now()
-    const transactional = channel.startsWith('sets:') || channel === 'cards:save' || channel === 'columns:save' || channel === 'cards:move' || channel === 'blueprints:assignments-save'
+    const transactional =
+      channel.startsWith('sets:') ||
+      channel === 'cards:save' ||
+      channel === 'columns:save' ||
+      channel === 'cards:move' ||
+      channel === 'blueprints:assignments-save'
     const previousSets = transactional ? structuredClone(sets) : null
     const previousActiveSetId = activeSetId
     const previousNativeSets = transactional ? structuredClone(nativeSets) : null
@@ -75,13 +134,17 @@ function registerLoggedHandler(channel: string, handler: (...args: any[]) => unk
       return result
     } catch (error) {
       if (previousSets) sets = previousSets
-      if (transactional) { activeSetId = previousActiveSetId; nativeSets = previousNativeSets ?? nativeSets }
+      if (transactional) {
+        activeSetId = previousActiveSetId
+        nativeSets = previousNativeSets ?? nativeSets
+      }
       await writeDiagnostic('error', 'operation.failed', {
         operationId,
         channel,
         durationMs: Date.now() - startedAt,
         details,
-        error: error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),
+        error:
+          error instanceof Error ? { name: error.name, message: error.message, stack: error.stack } : String(error),
       })
       throw error
     }
@@ -100,51 +163,79 @@ async function openDiagnosticLog() {
 
 async function logLinkedNativeHashDrifts() {
   const groups = new Map<string, ProjectSet[]>()
-  for (const set of sets) if (set.nativeSetFile) {
-    const file = path.basename(set.nativeSetFile)
-    groups.set(file, [...(groups.get(file) ?? []), set])
-  }
+  for (const set of sets)
+    if (set.nativeSetFile) {
+      const file = path.basename(set.nativeSetFile)
+      groups.set(file, [...(groups.get(file) ?? []), set])
+    }
   for (const [file, group] of groups) {
     try {
       const currentHash = nativeDocumentHash(await fs.readFile(path.join(activeProject, 'data', 'sets', file)))
-      const expectedHashes = [...new Set(group.map((set) => set.nativeSetHash).filter((hash): hash is string => Boolean(hash)))]
-      if (expectedHashes.some((hash) => hash !== currentHash)) await writeDiagnostic('error', 'native-set.hash-mismatch.on-open', {
-        file,
-        setNames: group.map((set) => set.name),
-        nameMismatches: group.flatMap((set) => {
-          const native = nativeSets.find((item) => item.file === file && item.index === set.nativeSetIndex)
-          return native && native.name !== set.name ? [{ cardStudioName: set.name, tabletopCreatorName: native.name, index: native.index }] : []
-        }),
-        currentHash,
-        expectedHashes,
-      })
+      const expectedHashes = [
+        ...new Set(group.map((set) => set.nativeSetHash).filter((hash): hash is string => Boolean(hash))),
+      ]
+      if (expectedHashes.some((hash) => hash !== currentHash))
+        await writeDiagnostic('error', 'native-set.hash-mismatch.on-open', {
+          file,
+          setNames: group.map((set) => set.name),
+          nameMismatches: group.flatMap((set) => {
+            const native = nativeSets.find((item) => item.file === file && item.index === set.nativeSetIndex)
+            return native && native.name !== set.name
+              ? [{ cardStudioName: set.name, tabletopCreatorName: native.name, index: native.index }]
+              : []
+          }),
+          currentHash,
+          expectedHashes,
+        })
     } catch (error) {
-      await writeDiagnostic('error', 'native-set.file-check-failed', { file, error: error instanceof Error ? { message: error.message, stack: error.stack } : String(error) })
+      await writeDiagnostic('error', 'native-set.file-check-failed', {
+        file,
+        error: error instanceof Error ? { message: error.message, stack: error.stack } : String(error),
+      })
     }
   }
 }
 
 async function upgradeNativeSetHashes() {
   const groups = new Map<string, ProjectSet[]>()
-  for (const set of sets) if (set.nativeSetFile) {
-    const file = path.basename(set.nativeSetFile)
-    groups.set(file, [...(groups.get(file) ?? []), set])
-  }
+  for (const set of sets)
+    if (set.nativeSetFile) {
+      const file = path.basename(set.nativeSetFile)
+      groups.set(file, [...(groups.get(file) ?? []), set])
+    }
   let changed = false
   for (const [file, group] of groups) {
     let raw: Buffer
-    try { raw = await fs.readFile(path.join(activeProject, 'data', 'sets', file)) } catch { continue }
+    try {
+      raw = await fs.readFile(path.join(activeProject, 'data', 'sets', file))
+    } catch {
+      continue
+    }
     const currentCanonical = nativeDocumentHash(raw)
     const currentRaw = sha256(raw)
     for (const set of group) {
       if (!set.nativeSetHash || set.nativeSetHash === currentCanonical) continue
       let backupMatches = false
-      const backupPath = path.join(activeProject, dataDirName, 'native-backups', `${file}.${set.nativeSetHash.slice(0, 16)}.json`)
-      try { backupMatches = nativeDocumentHash(await fs.readFile(backupPath)) === currentCanonical } catch { /* no prior backup */ }
+      const backupPath = path.join(
+        activeProject,
+        dataDirName,
+        'native-backups',
+        `${file}.${set.nativeSetHash.slice(0, 16)}.json`,
+      )
+      try {
+        backupMatches = nativeDocumentHash(await fs.readFile(backupPath)) === currentCanonical
+      } catch {
+        /* no prior backup */
+      }
       if (set.nativeSetHash === currentRaw || backupMatches) {
         set.nativeSetHash = currentCanonical
         changed = true
-        await writeDiagnostic('info', 'native-set.hash-format-upgraded', { file, setName: set.name, currentHash: currentCanonical, matchedBackup: backupMatches })
+        await writeDiagnostic('info', 'native-set.hash-format-upgraded', {
+          file,
+          setName: set.name,
+          currentHash: currentCanonical,
+          matchedBackup: backupMatches,
+        })
       }
     }
   }
@@ -152,7 +243,13 @@ async function upgradeNativeSetHashes() {
 }
 
 function fieldIdFor(header: string) {
-  return `field_${header.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'unnamed'}`
+  return `field_${
+    header
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_|_$/g, '') || 'unnamed'
+  }`
 }
 
 function importedFieldIdFor(header: string) {
@@ -162,7 +259,9 @@ function importedFieldIdFor(header: string) {
   return fieldIdFor(header)
 }
 
-function activeSet() { return sets.find((set) => set.id === activeSetId) ?? null }
+function activeSet() {
+  return sets.find((set) => set.id === activeSetId) ?? null
+}
 
 function ensureSetGeneratedIds(set: ProjectSet, regenerate = false) {
   const cards = ensureGeneratedIdValues(set.cards, set.columns, randomUUID, regenerate)
@@ -178,7 +277,15 @@ function snapshot(): ProjectSnapshot {
     projectName,
     cards: current?.cards ?? [],
     columns: current?.columns ?? [],
-    sets: sets.map(({ id, name, sourceFile, nativeSetFile, nativeSetIndex, blueprintName, cards }) => ({ id, name, sourceFile, nativeSetFile, nativeSetIndex, blueprintName, cardCount: cards.length })),
+    sets: sets.map(({ id, name, sourceFile, nativeSetFile, nativeSetIndex, blueprintName, cards }) => ({
+      id,
+      name,
+      sourceFile,
+      nativeSetFile,
+      nativeSetIndex,
+      blueprintName,
+      cardCount: cards.length,
+    })),
     activeSetId,
     workbooks,
     assets,
@@ -190,7 +297,9 @@ function snapshot(): ProjectSnapshot {
 
 type SetStoreIndex = { version: 1; sets: Array<{ id: string; file: string }> }
 
-function setStoreFile(id: string) { return `set-${sha256(id).slice(0, 20)}.json` }
+function setStoreFile(id: string) {
+  return `set-${sha256(id).slice(0, 20)}.json`
+}
 
 async function writeFileAtomically(filePath: string, contents: string) {
   await fs.mkdir(path.dirname(filePath), { recursive: true })
@@ -204,12 +313,15 @@ async function readSplitSetStore(storeDir: string): Promise<ProjectSet[] | null>
   if (!existsSync(indexPath)) return null
   const index = JSON.parse(await fs.readFile(indexPath, 'utf8')) as SetStoreIndex
   if (index.version !== 1 || !Array.isArray(index.sets)) throw new Error('Indice dei set Card Studio non valido.')
-  const loaded = await Promise.all(index.sets.map(async ({ id, file }) => {
-    if (path.basename(file) !== file || !file.endsWith('.json')) throw new Error(`File set non valido nell'indice: ${file}`)
-    const set = JSON.parse(await fs.readFile(path.join(storeDir, 'sets', file), 'utf8')) as ProjectSet
-    if (set.id !== id) throw new Error(`L'identificativo del set non corrisponde: ${file}`)
-    return set
-  }))
+  const loaded = await Promise.all(
+    index.sets.map(async ({ id, file }) => {
+      if (path.basename(file) !== file || !file.endsWith('.json'))
+        throw new Error(`File set non valido nell'indice: ${file}`)
+      const set = JSON.parse(await fs.readFile(path.join(storeDir, 'sets', file), 'utf8')) as ProjectSet
+      if (set.id !== id) throw new Error(`L'identificativo del set non corrisponde: ${file}`)
+      return set
+    }),
+  )
   return loaded
 }
 
@@ -218,14 +330,22 @@ async function writeSplitSetStore(storeDir: string, projectSets: ProjectSet[]) {
   await fs.mkdir(setsDir, { recursive: true })
   const previousIndexPath = path.join(setsDir, 'index.json')
   let previousIndex: SetStoreIndex | null = null
-  try { previousIndex = JSON.parse(await fs.readFile(previousIndexPath, 'utf8')) as SetStoreIndex } catch { /* first write or legacy migration */ }
+  try {
+    previousIndex = JSON.parse(await fs.readFile(previousIndexPath, 'utf8')) as SetStoreIndex
+  } catch {
+    /* first write or legacy migration */
+  }
 
   const entries = projectSets.map((set) => ({ id: set.id, file: setStoreFile(set.id) }))
   for (const set of projectSets) {
     const filePath = path.join(setsDir, setStoreFile(set.id))
     const content = JSON.stringify(set, null, 2)
     let current = ''
-    try { current = await fs.readFile(filePath, 'utf8') } catch { /* new set */ }
+    try {
+      current = await fs.readFile(filePath, 'utf8')
+    } catch {
+      /* new set */
+    }
     if (current !== content) await writeFileAtomically(filePath, content)
   }
 
@@ -234,7 +354,8 @@ async function writeSplitSetStore(storeDir: string, projectSets: ProjectSet[]) {
 
   const retained = new Set(entries.map((entry) => entry.file))
   for (const entry of previousIndex?.sets ?? []) {
-    if (!retained.has(entry.file) && path.basename(entry.file) === entry.file) await fs.rm(path.join(setsDir, entry.file), { force: true })
+    if (!retained.has(entry.file) && path.basename(entry.file) === entry.file)
+      await fs.rm(path.join(setsDir, entry.file), { force: true })
   }
 
   // Keep the old monolithic file as a dated recovery copy after the split store is durable.
@@ -253,36 +374,47 @@ async function persistSets(syncNative = true) {
   await fs.mkdir(dir, { recursive: true })
   if (syncNative) {
     const nativeGroups = new Map<string, ProjectSet[]>()
-    for (const set of sets) if (set.nativeSetFile) {
-      const file = path.basename(set.nativeSetFile)
-      nativeGroups.set(file, [...(nativeGroups.get(file) ?? []), set])
-    }
+    for (const set of sets)
+      if (set.nativeSetFile) {
+        const file = path.basename(set.nativeSetFile)
+        nativeGroups.set(file, [...(nativeGroups.get(file) ?? []), set])
+      }
     for (const [file, group] of nativeGroups) {
       const filePath = path.join(activeProject, 'data', 'sets', file)
-      const expected = [...new Set(group.map((set) => set.nativeSetHash).filter((hash): hash is string => Boolean(hash)))]
+      const expected = [
+        ...new Set(group.map((set) => set.nativeSetHash).filter((hash): hash is string => Boolean(hash))),
+      ]
       try {
         const currentHash = nativeDocumentHash(await fs.readFile(filePath))
         if (expected.some((hash) => hash !== currentHash)) {
           await writeDiagnostic('info', 'native-set.sync-skipped-hash-mismatch', {
-          file,
-          setNames: group.map((set) => set.name),
-          nameMismatches: group.flatMap((set) => {
-            const native = nativeSets.find((item) => item.file === file && item.index === set.nativeSetIndex)
-            return native && native.name !== set.name ? [{ cardStudioName: set.name, tabletopCreatorName: native.name, index: native.index }] : []
-          }),
-          currentHash,
-          expectedHashes: expected,
-        })
+            file,
+            setNames: group.map((set) => set.name),
+            nameMismatches: group.flatMap((set) => {
+              const native = nativeSets.find((item) => item.file === file && item.index === set.nativeSetIndex)
+              return native && native.name !== set.name
+                ? [{ cardStudioName: set.name, tabletopCreatorName: native.name, index: native.index }]
+                : []
+            }),
+            currentHash,
+            expectedHashes: expected,
+          })
           const notificationKey = `${activeProject}:${file}`
           if (!notifiedNativeSyncSkips.has(notificationKey)) {
             notifiedNativeSyncSkips.add(notificationKey)
-            win?.webContents.send('app:notice', `Salvato in Card Studio, ma “${group.map((set) => set.name).join(', ')}” non è stato sincronizzato in Tabletop Creator: il file nativo è cambiato. Consulta i log o ricollega il set.`)
+            win?.webContents.send(
+              'app:notice',
+              `Salvato in Card Studio, ma “${group.map((set) => set.name).join(', ')}” non è stato sincronizzato in Tabletop Creator: il file nativo è cambiato. Consulta i log o ricollega il set.`,
+            )
           }
           continue
         }
         await writeLinkedNativeSets(group)
       } catch (error) {
-        await writeDiagnostic('error', 'native-set.sync-skipped-error', { file, error: error instanceof Error ? { message: error.message, stack: error.stack } : String(error) })
+        await writeDiagnostic('error', 'native-set.sync-skipped-error', {
+          file,
+          error: error instanceof Error ? { message: error.message, stack: error.stack } : String(error),
+        })
       }
     }
   }
@@ -305,14 +437,17 @@ function cardFieldValue(card: Card, fieldId: string): string {
   return card.values[fieldId] ?? ''
 }
 
-function mergeKey(value: string): string { return value.trim().toLocaleLowerCase() }
+function mergeKey(value: string): string {
+  return value.trim().toLocaleLowerCase()
+}
 
 function tabletopAssetReference(value: string): string {
   const normalized = value.trim().replace(/\\/g, '/')
   if (!normalized) return ''
   const lower = normalized.toLocaleLowerCase()
   const assetsMarker = lower.lastIndexOf('/assets/')
-  const tabletopReference = (reference: string) => reference.startsWith('images/card-studio/') ? reference.slice('images/'.length) : reference
+  const tabletopReference = (reference: string) =>
+    reference.startsWith('images/card-studio/') ? reference.slice('images/'.length) : reference
   if (assetsMarker >= 0) return tabletopReference(normalized.slice(assetsMarker + '/assets/'.length))
   if (lower.startsWith('assets/')) return tabletopReference(normalized.slice('assets/'.length))
   if (normalized.startsWith('/') || /^[a-z]:\//i.test(normalized)) return path.posix.basename(normalized)
@@ -324,11 +459,15 @@ async function workbookInfo(filePath: string): Promise<WorkbookInfo> {
   await workbook.xlsx.readFile(filePath)
   const sheet = workbook.worksheets[0]
   const headers: string[] = []
-  sheet.getRow(1).eachCell({ includeEmpty: true }, (cell) => { if (cell.text.trim()) headers.push(cell.text.trim()) })
+  sheet.getRow(1).eachCell({ includeEmpty: true }, (cell) => {
+    if (cell.text.trim()) headers.push(cell.text.trim())
+  })
   let rowCount = 0
   for (let rowIndex = 2; rowIndex <= sheet.rowCount; rowIndex += 1) {
     let hasContent = false
-    sheet.getRow(rowIndex).eachCell((cell) => { if (cell.text.trim()) hasContent = true })
+    sheet.getRow(rowIndex).eachCell((cell) => {
+      if (cell.text.trim()) hasContent = true
+    })
     if (hasContent) rowCount += 1
   }
   return { file: path.basename(filePath), rowCount, headers }
@@ -337,16 +476,39 @@ async function workbookInfo(filePath: string): Promise<WorkbookInfo> {
 async function scanWorkbooks(): Promise<WorkbookInfo[]> {
   const entries = await fs.readdir(activeProject, { withFileTypes: true })
   const files = entries
-    .filter((entry) => entry.isFile() && /\.xlsx$/i.test(entry.name) && !entry.name.startsWith('~$') && !entry.name.startsWith('.~') && !/-cms-export\.xlsx$/i.test(entry.name))
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        /\.xlsx$/i.test(entry.name) &&
+        !entry.name.startsWith('~$') &&
+        !entry.name.startsWith('.~') &&
+        !/-cms-export\.xlsx$/i.test(entry.name),
+    )
     .map((entry) => path.join(activeProject, entry.name))
-  const results = await Promise.all(files.map(async (file) => {
-    try { return await workbookInfo(file) } catch { return null }
-  }))
-  return results.filter((item): item is WorkbookInfo => item !== null).sort((a, b) => a.file.localeCompare(b.file, 'it'))
+  const results = await Promise.all(
+    files.map(async (file) => {
+      try {
+        return await workbookInfo(file)
+      } catch {
+        return null
+      }
+    }),
+  )
+  return results
+    .filter((item): item is WorkbookInfo => item !== null)
+    .sort((a, b) => a.file.localeCompare(b.file, 'it'))
 }
 
 function guessFieldType(header: string): ColumnDefinition['type'] {
-  return /color|colour|colore/i.test(header) ? 'color' : /image|immagine|illustrazione|artwork/i.test(header) ? 'image' : /amount|quantit|costo|cost|speed|potenza|numero|count/i.test(header) ? 'number' : /text|effetto|description|descrizione|regole/i.test(header) ? 'longtext' : 'text'
+  return /color|colour|colore/i.test(header)
+    ? 'color'
+    : /image|immagine|illustrazione|artwork/i.test(header)
+      ? 'image'
+      : /amount|quantit|costo|cost|speed|potenza|numero|count/i.test(header)
+        ? 'number'
+        : /text|effetto|description|descrizione|regole/i.test(header)
+          ? 'longtext'
+          : 'text'
 }
 
 async function workbookRestoreFields(filePath: string, set: ProjectSet) {
@@ -375,8 +537,12 @@ async function readPlannedWorkbook(filePath: string, plan: ImportPlan): Promise<
     const header = cell.text.trim()
     if (header && plan.fields.some((field) => field.header === header)) headerEntries.push({ header, index })
   })
-  const titleHeader = headerEntries.find(({ header }) => ['title', 'titolo', 'name', 'nome'].includes(header.toLowerCase()))?.header
-  const quantityHeader = headerEntries.find(({ header }) => ['[item amount]', 'amount', 'quantità', 'quantita'].includes(header.toLowerCase()))?.header
+  const titleHeader = headerEntries.find(({ header }) =>
+    ['title', 'titolo', 'name', 'nome'].includes(header.toLowerCase()),
+  )?.header
+  const quantityHeader = headerEntries.find(({ header }) =>
+    ['[item amount]', 'amount', 'quantità', 'quantita'].includes(header.toLowerCase()),
+  )?.header
   const columns: ColumnDefinition[] = headerEntries.map(({ header }) => {
     const field = plan.fields.find((item) => item.header === header)!
     return {
@@ -406,11 +572,25 @@ async function readPlannedWorkbook(filePath: string, plan: ImportPlan): Promise<
   }
   const cardsWithIds = ensureGeneratedIdValues(cards, columns, randomUUID)
   const importMatchFieldId = titleHeader ? 'meta_title' : columns[0]?.fieldId
-  const importBaseline = cardsWithIds.map((card) => ({ cardId: card.id, values: Object.fromEntries(columns.map((column) => [column.fieldId, cardFieldValue(card, column.fieldId)])) }))
-  return { id: `set_${crypto.randomUUID()}`, name: plan.name.trim() || path.parse(plan.file).name, sourceFile: path.basename(plan.file), cards: cardsWithIds, columns, importBaseline, importMatchFieldId }
+  const importBaseline = cardsWithIds.map((card) => ({
+    cardId: card.id,
+    values: Object.fromEntries(columns.map((column) => [column.fieldId, cardFieldValue(card, column.fieldId)])),
+  }))
+  return {
+    id: `set_${crypto.randomUUID()}`,
+    name: plan.name.trim() || path.parse(plan.file).name,
+    sourceFile: path.basename(plan.file),
+    cards: cardsWithIds,
+    columns,
+    importBaseline,
+    importMatchFieldId,
+  }
 }
 
-async function readWorkbookRowsForSet(filePath: string, set: ProjectSet): Promise<{ cards: Card[]; importedFieldIds: string[] }> {
+async function readWorkbookRowsForSet(
+  filePath: string,
+  set: ProjectSet,
+): Promise<{ cards: Card[]; importedFieldIds: string[] }> {
   const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.readFile(filePath)
   const sheet = workbook.worksheets[0]
@@ -443,23 +623,39 @@ async function readWorkbookRowsForSet(filePath: string, set: ProjectSet): Promis
   return { cards, importedFieldIds }
 }
 
-async function previewWorkbookMerge(file: string, setId: string, requestedMatchFieldId?: string, requestedFieldIds?: string[], requestedRestoreFieldIds?: string[]): Promise<WorkbookMergePreview> {
+async function previewWorkbookMerge(
+  file: string,
+  setId: string,
+  requestedMatchFieldId?: string,
+  requestedFieldIds?: string[],
+  requestedRestoreFieldIds?: string[],
+): Promise<WorkbookMergePreview> {
   const set = sets.find((item) => item.id === setId)
   if (!set) throw new Error('Il set da aggiornare non esiste più.')
   if (set.sourceFile !== path.basename(file)) throw new Error('Questo foglio non è collegato al set selezionato.')
   const filePath = path.join(activeProject, path.basename(file))
   const restoreFields = await workbookRestoreFields(filePath, set)
-  const restoredFieldIds = restoreFields.filter((field) => requestedRestoreFieldIds?.includes(field.id)).map((field) => field.id)
-  const restoreColumns: ColumnDefinition[] = restoreFields.filter((field) => restoredFieldIds.includes(field.id)).map((field) => ({ id: `column_${field.id}`, header: field.header, fieldId: field.id, type: field.type }))
+  const restoredFieldIds = restoreFields
+    .filter((field) => requestedRestoreFieldIds?.includes(field.id))
+    .map((field) => field.id)
+  const restoreColumns: ColumnDefinition[] = restoreFields
+    .filter((field) => restoredFieldIds.includes(field.id))
+    .map((field) => ({ id: `column_${field.id}`, header: field.header, fieldId: field.id, type: field.type }))
   const effectiveSet = restoreColumns.length ? { ...set, columns: [...set.columns, ...restoreColumns] } : set
   const { cards: incoming, importedFieldIds } = await readWorkbookRowsForSet(filePath, effectiveSet)
-  const matchFields = set.columns.filter((column, index, all) => importedFieldIds.includes(column.fieldId) && all.findIndex((candidate) => candidate.fieldId === column.fieldId) === index).map((column) => ({ id: column.fieldId, label: column.header }))
+  const matchFields = set.columns
+    .filter(
+      (column, index, all) =>
+        importedFieldIds.includes(column.fieldId) &&
+        all.findIndex((candidate) => candidate.fieldId === column.fieldId) === index,
+    )
+    .map((column) => ({ id: column.fieldId, label: column.header }))
   if (!matchFields.length) throw new Error('Non trovo colonne del foglio corrispondenti ai campi del set.')
   const matchFieldId = matchFields.some((field) => field.id === requestedMatchFieldId)
     ? requestedMatchFieldId!
     : matchFields.some((field) => field.id === set.importMatchFieldId)
       ? set.importMatchFieldId!
-      : matchFields.find((field) => field.id === 'meta_title')?.id ?? matchFields[0].id
+      : (matchFields.find((field) => field.id === 'meta_title')?.id ?? matchFields[0].id)
   const selectedIds = new Set(requestedFieldIds ?? importedFieldIds)
   const selectedFieldIds = importedFieldIds.filter((fieldId) => selectedIds.has(fieldId))
   const baselineFieldIds = [...new Set([...selectedFieldIds, matchFieldId])]
@@ -470,7 +666,10 @@ async function previewWorkbookMerge(file: string, setId: string, requestedMatchF
   const existingKeyCounts = new Map<string, number>()
   for (const card of set.cards) {
     const baseline = baselineByCardId.get(card.id)
-    const keyValue = baseline && Object.prototype.hasOwnProperty.call(baseline, matchFieldId) ? baseline[matchFieldId] : cardFieldValue(card, matchFieldId)
+    const keyValue =
+      baseline && Object.prototype.hasOwnProperty.call(baseline, matchFieldId)
+        ? baseline[matchFieldId]
+        : cardFieldValue(card, matchFieldId)
     const key = mergeKey(keyValue)
     if (!key) continue
     existingKeyCounts.set(key, (existingKeyCounts.get(key) ?? 0) + 1)
@@ -481,11 +680,13 @@ async function previewWorkbookMerge(file: string, setId: string, requestedMatchF
     const key = mergeKey(cardFieldValue(card, matchFieldId))
     incomingKeyCounts.set(key, (incomingKeyCounts.get(key) ?? 0) + 1)
   }
-  const duplicateKeys = [...new Set([
-    ...[...existingKeyCounts].filter(([, count]) => count > 1).map(([key]) => key),
-    ...[...incomingKeyCounts].filter(([, count]) => count > 1).map(([key]) => key),
-    ...[...incomingKeyCounts.keys()].filter((key) => !key),
-  ])]
+  const duplicateKeys = [
+    ...new Set([
+      ...[...existingKeyCounts].filter(([, count]) => count > 1).map(([key]) => key),
+      ...[...incomingKeyCounts].filter(([, count]) => count > 1).map(([key]) => key),
+      ...[...incomingKeyCounts.keys()].filter((key) => !key),
+    ]),
+  ]
   const duplicateSet = new Set(duplicateKeys)
   const conflicts: MergeFieldConflict[] = []
   const automaticChanges: MergeFieldChange[] = []
@@ -499,7 +700,10 @@ async function previewWorkbookMerge(file: string, setId: string, requestedMatchF
     const key = mergeKey(cardFieldValue(incomingCard, matchFieldId))
     if (!key || duplicateSet.has(key)) continue
     const current = existingByKey.get(key)
-    if (!current) { newTitles.push(incomingCard.title); continue }
+    if (!current) {
+      newTitles.push(incomingCard.title)
+      continue
+    }
     matchedRows += 1
     seenCards.add(current.id)
     const baseline = baselineByCardId.get(current.id)
@@ -513,14 +717,49 @@ async function previewWorkbookMerge(file: string, setId: string, requestedMatchF
       const hasBaselineValue = baseline && Object.prototype.hasOwnProperty.call(baseline, fieldId)
       const baselineValue = hasBaselineValue ? baseline[fieldId] : currentValue
       if (legacyBaseline || !hasBaselineValue) {
-        conflicts.push({ conflictId: `${current.id}::${fieldId}`, cardId: current.id, cardTitle: current.title, fieldId, header, currentValue, incomingValue })
+        conflicts.push({
+          conflictId: `${current.id}::${fieldId}`,
+          cardId: current.id,
+          cardTitle: current.title,
+          fieldId,
+          header,
+          currentValue,
+          incomingValue,
+        })
         continue
       }
       const currentChanged = currentValue !== baselineValue
       const incomingChanged = incomingValue !== baselineValue
-      if (currentChanged && incomingChanged) conflicts.push({ conflictId: `${current.id}::${fieldId}`, cardId: current.id, cardTitle: current.title, fieldId, header, currentValue, incomingValue })
-      else if (incomingChanged) automaticChanges.push({ cardId: current.id, cardTitle: current.title, fieldId, header, currentValue, incomingValue, source: 'excel' })
-      else preservedLocalChanges.push({ cardId: current.id, cardTitle: current.title, fieldId, header, currentValue, incomingValue, source: 'set' })
+      if (currentChanged && incomingChanged)
+        conflicts.push({
+          conflictId: `${current.id}::${fieldId}`,
+          cardId: current.id,
+          cardTitle: current.title,
+          fieldId,
+          header,
+          currentValue,
+          incomingValue,
+        })
+      else if (incomingChanged)
+        automaticChanges.push({
+          cardId: current.id,
+          cardTitle: current.title,
+          fieldId,
+          header,
+          currentValue,
+          incomingValue,
+          source: 'excel',
+        })
+      else
+        preservedLocalChanges.push({
+          cardId: current.id,
+          cardTitle: current.title,
+          fieldId,
+          header,
+          currentValue,
+          incomingValue,
+          source: 'set',
+        })
     }
     if (!changed) unchangedRows += 1
   }
@@ -528,21 +767,54 @@ async function previewWorkbookMerge(file: string, setId: string, requestedMatchF
   const token = crypto.randomUUID()
   pendingMerges.clear()
   pendingMerges.set(token, { setId, matchFieldId, incoming, selectedFieldIds, baselineFieldIds, restoreColumns })
-  const importFields = effectiveSet.columns.filter((column, index, all) => importedFieldIds.includes(column.fieldId) && all.findIndex((candidate) => candidate.fieldId === column.fieldId) === index).map((column) => ({ id: column.fieldId, label: column.header }))
-  return { token, setId, setName: set.name, file: path.basename(file), matchFieldId, matchFields, importFields, selectedFieldIds, restoreFields, restoredFieldIds, matchedRows, unchangedRows, newTitles, missingTitles, automaticChanges, preservedLocalChanges, conflicts, duplicateKeys, legacyBaseline }
+  const importFields = effectiveSet.columns
+    .filter(
+      (column, index, all) =>
+        importedFieldIds.includes(column.fieldId) &&
+        all.findIndex((candidate) => candidate.fieldId === column.fieldId) === index,
+    )
+    .map((column) => ({ id: column.fieldId, label: column.header }))
+  return {
+    token,
+    setId,
+    setName: set.name,
+    file: path.basename(file),
+    matchFieldId,
+    matchFields,
+    importFields,
+    selectedFieldIds,
+    restoreFields,
+    restoredFieldIds,
+    matchedRows,
+    unchangedRows,
+    newTitles,
+    missingTitles,
+    automaticChanges,
+    preservedLocalChanges,
+    conflicts,
+    duplicateKeys,
+    legacyBaseline,
+  }
 }
 
-async function applyWorkbookMerge(token: string, resolutions: Record<string, 'excel' | 'set'>): Promise<ProjectSnapshot> {
+async function applyWorkbookMerge(
+  token: string,
+  resolutions: Record<string, 'excel' | 'set'>,
+): Promise<ProjectSnapshot> {
   const pending = pendingMerges.get(token)
   if (!pending) throw new Error('La prévisualizzazione del merge è scaduta. Riapri il confronto con il foglio.')
   const set = sets.find((item) => item.id === pending.setId)
   if (!set) throw new Error('Il set da aggiornare non esiste più.')
-  for (const column of pending.restoreColumns) if (!set.columns.some((existing) => existing.fieldId === column.fieldId)) set.columns.push(column)
+  for (const column of pending.restoreColumns)
+    if (!set.columns.some((existing) => existing.fieldId === column.fieldId)) set.columns.push(column)
   const baselineByCardId = new Map((set.importBaseline ?? []).map((row) => [row.cardId, { ...row.values }]))
   const existingByKey = new Map<string, Card>()
   for (const card of set.cards) {
     const baseline = baselineByCardId.get(card.id)
-    const keyValue = baseline && Object.prototype.hasOwnProperty.call(baseline, pending.matchFieldId) ? baseline[pending.matchFieldId] : cardFieldValue(card, pending.matchFieldId)
+    const keyValue =
+      baseline && Object.prototype.hasOwnProperty.call(baseline, pending.matchFieldId)
+        ? baseline[pending.matchFieldId]
+        : cardFieldValue(card, pending.matchFieldId)
     const key = mergeKey(keyValue)
     if (key) existingByKey.set(key, card)
   }
@@ -554,9 +826,23 @@ async function applyWorkbookMerge(token: string, resolutions: Record<string, 'ex
     const current = existingByKey.get(key)
     if (!current) {
       const newFieldIds = [...new Set([...pending.selectedFieldIds, pending.matchFieldId])]
-      const added = { ...incoming, id: `card_${crypto.randomUUID()}`, title: newFieldIds.includes('meta_title') ? incoming.title : `Carta ${set.cards.length + addedCards.length + 1}`, status: 'Idea' as const, tags: [], quantity: newFieldIds.includes('meta_quantity') ? incoming.quantity : 1, values: Object.fromEntries(newFieldIds.map((fieldId) => [fieldId, incoming.values[fieldId] ?? ''])), updatedAt: now }
+      const added = {
+        ...incoming,
+        id: `card_${crypto.randomUUID()}`,
+        title: newFieldIds.includes('meta_title')
+          ? incoming.title
+          : `Carta ${set.cards.length + addedCards.length + 1}`,
+        status: 'Idea' as const,
+        tags: [],
+        quantity: newFieldIds.includes('meta_quantity') ? incoming.quantity : 1,
+        values: Object.fromEntries(newFieldIds.map((fieldId) => [fieldId, incoming.values[fieldId] ?? ''])),
+        updatedAt: now,
+      }
       addedCards.push(added)
-      baselineByCardId.set(added.id, Object.fromEntries(pending.baselineFieldIds.map((fieldId) => [fieldId, cardFieldValue(incoming, fieldId)])))
+      baselineByCardId.set(
+        added.id,
+        Object.fromEntries(pending.baselineFieldIds.map((fieldId) => [fieldId, cardFieldValue(incoming, fieldId)])),
+      )
       continue
     }
     const baseline = baselineByCardId.get(current.id) ?? {}
@@ -570,12 +856,22 @@ async function applyWorkbookMerge(token: string, resolutions: Record<string, 'ex
         if (fieldId === 'meta_title') next.title = incoming.title
         else if (fieldId === 'meta_quantity') next.quantity = incoming.quantity
         else if (!['meta_status', 'meta_tags'].includes(fieldId)) next.values[fieldId] = incoming.values[fieldId] ?? ''
-      } else if (fieldChanged && !Object.prototype.hasOwnProperty.call(baseline, fieldId) && currentValue === '' && !Object.prototype.hasOwnProperty.call(resolutions, conflictKey)) {
+      } else if (
+        fieldChanged &&
+        !Object.prototype.hasOwnProperty.call(baseline, fieldId) &&
+        currentValue === '' &&
+        !Object.prototype.hasOwnProperty.call(resolutions, conflictKey)
+      ) {
         // Legacy imported sets have no prior baseline; fill empty fields while preserving non-empty local values.
         if (fieldId === 'meta_title') next.title = incoming.title
         else if (fieldId === 'meta_quantity') next.quantity = incoming.quantity
         else if (!['meta_status', 'meta_tags'].includes(fieldId)) next.values[fieldId] = incoming.values[fieldId] ?? ''
-      } else if (fieldChanged && Object.prototype.hasOwnProperty.call(baseline, fieldId) && currentValue === baseline[fieldId] && cardFieldValue(incoming, fieldId) !== baseline[fieldId]) {
+      } else if (
+        fieldChanged &&
+        Object.prototype.hasOwnProperty.call(baseline, fieldId) &&
+        currentValue === baseline[fieldId] &&
+        cardFieldValue(incoming, fieldId) !== baseline[fieldId]
+      ) {
         if (fieldId === 'meta_title') next.title = incoming.title
         else if (fieldId === 'meta_quantity') next.quantity = incoming.quantity
         else if (!['meta_status', 'meta_tags'].includes(fieldId)) next.values[fieldId] = incoming.values[fieldId] ?? ''
@@ -608,7 +904,11 @@ async function scanAssets(): Promise<ProjectAsset[]> {
   async function walk(dir: string) {
     if (found.length >= 300) return
     let entries
-    try { entries = await fs.readdir(dir, { withFileTypes: true }) } catch { return }
+    try {
+      entries = await fs.readdir(dir, { withFileTypes: true })
+    } catch {
+      return
+    }
     for (const entry of entries) {
       const entryPath = path.join(dir, entry.name)
       if (entry.isDirectory()) await walk(entryPath)
@@ -617,18 +917,35 @@ async function scanAssets(): Promise<ProjectAsset[]> {
     }
   }
   await walk(assetRoot)
-  const mimeFor: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif', '.svg': 'image/svg+xml', '.avif': 'image/avif' }
-  return Promise.all(found.map(async (file) => {
-    const relative = path.relative(assetRoot, file).split(path.sep).join('/').replace(/^images\/card-studio\//, 'card-studio/')
-    const ext = path.extname(file).toLowerCase()
-    let previewUrl = ''
-    try {
-      const image = nativeImage.createFromPath(file)
-      if (!image.isEmpty()) previewUrl = image.resize({ width: 180, height: 180, quality: 'good' }).toDataURL()
-      else if (ext === '.svg') previewUrl = `data:image/svg+xml;base64,${(await fs.readFile(file)).toString('base64')}`
-    } catch { /* an asset without a preview remains assignable by name */ }
-    return { path: relative, name: path.basename(file), mime: mimeFor[ext] ?? 'application/octet-stream', previewUrl }
-  }))
+  const mimeFor: Record<string, string> = {
+    '.png': 'image/png',
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.webp': 'image/webp',
+    '.gif': 'image/gif',
+    '.svg': 'image/svg+xml',
+    '.avif': 'image/avif',
+  }
+  return Promise.all(
+    found.map(async (file) => {
+      const relative = path
+        .relative(assetRoot, file)
+        .split(path.sep)
+        .join('/')
+        .replace(/^images\/card-studio\//, 'card-studio/')
+      const ext = path.extname(file).toLowerCase()
+      let previewUrl = ''
+      try {
+        const image = nativeImage.createFromPath(file)
+        if (!image.isEmpty()) previewUrl = image.resize({ width: 180, height: 180, quality: 'good' }).toDataURL()
+        else if (ext === '.svg')
+          previewUrl = `data:image/svg+xml;base64,${(await fs.readFile(file)).toString('base64')}`
+      } catch {
+        /* an asset without a preview remains assignable by name */
+      }
+      return { path: relative, name: path.basename(file), mime: mimeFor[ext] ?? 'application/octet-stream', previewUrl }
+    }),
+  )
 }
 
 function tabletopBuiltInIconRoots(): string[] {
@@ -647,7 +964,9 @@ function tabletopBuiltInIconRoots(): string[] {
     try {
       const config = readFileSync(path.join(root, 'steamapps', 'libraryfolders.vdf'), 'utf8')
       for (const match of config.matchAll(/"path"\s+"([^"]+)"/g)) libraries.add(match[1].replace(/\\\\/g, '\\'))
-    } catch { /* Steam may be installed outside this location */ }
+    } catch {
+      /* Steam may be installed outside this location */
+    }
   }
   const roots: string[] = []
   for (const library of libraries) {
@@ -667,7 +986,11 @@ async function collectIcons(root: string, library: ProjectIconReference['library
   const supported = new Set(['.png', '.svg', '.webp', '.jpg', '.jpeg'])
   const visit = async (directory: string) => {
     let entries
-    try { entries = await fs.readdir(directory, { withFileTypes: true }) } catch { return }
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true })
+    } catch {
+      return
+    }
     for (const entry of entries) {
       const file = path.join(directory, entry.name)
       if (entry.isDirectory()) await visit(file)
@@ -676,7 +999,12 @@ async function collectIcons(root: string, library: ProjectIconReference['library
         const extension = path.extname(relative)
         const name = path.basename(relative, extension)
         const reference = library === 'tabletop' ? relative.slice(0, -extension.length) : relative
-        result.push({ reference, name, category: path.posix.dirname(relative) === '.' ? '' : path.posix.dirname(relative), library })
+        result.push({
+          reference,
+          name,
+          category: path.posix.dirname(relative) === '.' ? '' : path.posix.dirname(relative),
+          library,
+        })
       }
     }
   }
@@ -692,16 +1020,30 @@ async function searchAvailableIcons(query: string, library: 'all' | 'tabletop' |
     const projectIcons = await collectIcons(path.join(activeProject, 'assets', 'icons'), 'project')
     const builtInIcons = (await Promise.all(roots.map((root) => collectIcons(root, 'tabletop')))).flat()
     const deduplicated = new Map<string, ProjectIconReference>()
-    for (const item of [...projectIcons, ...builtInIcons]) deduplicated.set(`${item.library}:${item.reference.toLocaleLowerCase()}`, item)
-    iconCatalogCache = { projectPath: activeProject, roots: rootKey, icons: [...deduplicated.values()].sort((a, b) => a.reference.localeCompare(b.reference, 'en', { numeric: true, sensitivity: 'base' })) }
+    for (const item of [...projectIcons, ...builtInIcons])
+      deduplicated.set(`${item.library}:${item.reference.toLocaleLowerCase()}`, item)
+    iconCatalogCache = {
+      projectPath: activeProject,
+      roots: rootKey,
+      icons: [...deduplicated.values()].sort((a, b) =>
+        a.reference.localeCompare(b.reference, 'en', { numeric: true, sensitivity: 'base' }),
+      ),
+    }
   }
   const term = query.trim().toLocaleLowerCase()
-  const matching = iconCatalogCache.icons.filter((icon) => (library === 'all' || icon.library === library) && (!term || `${icon.reference} ${icon.name} ${icon.category}`.toLocaleLowerCase().includes(term)))
+  const matching = iconCatalogCache.icons.filter(
+    (icon) =>
+      (library === 'all' || icon.library === library) &&
+      (!term || `${icon.reference} ${icon.name} ${icon.category}`.toLocaleLowerCase().includes(term)),
+  )
   return { items: matching.slice(0, 120), total: matching.length }
 }
 
 async function resolveProjectIcon(reference: string): Promise<string | null> {
-  const normalized = reference.trim().replace(/\\/g, '/').replace(/^\{\s*|\s*\}$/g, '')
+  const normalized = reference
+    .trim()
+    .replace(/\\/g, '/')
+    .replace(/^\{\s*|\s*\}$/g, '')
   if (!normalized || normalized.split('/').some((part) => part === '..')) return null
   const relative = normalized.replace(/^icons\//i, '')
   const projectRoot = path.join(activeProject, 'assets', 'icons')
@@ -716,7 +1058,9 @@ async function resolveProjectIcon(reference: string): Promise<string | null> {
         if (ext === '.svg') return `data:image/svg+xml;base64,${(await fs.readFile(file)).toString('base64')}`
         const image = nativeImage.createFromPath(file)
         if (!image.isEmpty()) return image.resize({ width: 160, height: 160, quality: 'good' }).toDataURL()
-      } catch { /* an unsupported icon remains identifiable by its name */ }
+      } catch {
+        /* an unsupported icon remains identifiable by its name */
+      }
     }
   }
   return null
@@ -725,28 +1069,57 @@ async function resolveProjectIcon(reference: string): Promise<string | null> {
 async function loadVariables(): Promise<ProjectVariable[]> {
   try {
     const json = JSON.parse(await fs.readFile(path.join(activeProject, 'data', 'variables.json'), 'utf8'))
-    const source: ProjectVariable[] = Array.isArray(json.variables) ? json.variables.filter((item: unknown): item is ProjectVariable => typeof item === 'object' && item !== null && 'code' in item && typeof (item as Record<string, unknown>).code === 'string') : []
+    const source: ProjectVariable[] = Array.isArray(json.variables)
+      ? json.variables.filter(
+          (item: unknown): item is ProjectVariable =>
+            typeof item === 'object' &&
+            item !== null &&
+            'code' in item &&
+            typeof (item as Record<string, unknown>).code === 'string',
+        )
+      : []
     let tagMap: Record<string, string[]> = {}
     try {
-      const metadata = JSON.parse(await fs.readFile(path.join(activeProject, dataDirName, 'variable-tags.json'), 'utf8'))
-      if (metadata && typeof metadata === 'object' && metadata.variables && typeof metadata.variables === 'object') tagMap = metadata.variables
-    } catch { /* no CMS tag metadata yet */ }
+      const metadata = JSON.parse(
+        await fs.readFile(path.join(activeProject, dataDirName, 'variable-tags.json'), 'utf8'),
+      )
+      if (metadata && typeof metadata === 'object' && metadata.variables && typeof metadata.variables === 'object')
+        tagMap = metadata.variables
+    } catch {
+      /* no CMS tag metadata yet */
+    }
     let typeMap: Record<string, 'text' | 'color' | 'icon'> = {}
     try {
-      const metadata = JSON.parse(await fs.readFile(path.join(activeProject, dataDirName, 'variable-types.json'), 'utf8'))
-      if (metadata && typeof metadata === 'object' && metadata.variables && typeof metadata.variables === 'object') typeMap = metadata.variables
-    } catch { /* no CMS variable type metadata yet */ }
-    return source.map((variable) => ({ ...variable, studioTags: tagMap[variable.code.toLocaleLowerCase()] ?? variable.studioTags ?? [], studioType: typeMap[variable.code.toLocaleLowerCase()] ?? variable.studioType ?? 'text' }))
-  } catch { return [] }
+      const metadata = JSON.parse(
+        await fs.readFile(path.join(activeProject, dataDirName, 'variable-types.json'), 'utf8'),
+      )
+      if (metadata && typeof metadata === 'object' && metadata.variables && typeof metadata.variables === 'object')
+        typeMap = metadata.variables
+    } catch {
+      /* no CMS variable type metadata yet */
+    }
+    return source.map((variable) => ({
+      ...variable,
+      studioTags: tagMap[variable.code.toLocaleLowerCase()] ?? variable.studioTags ?? [],
+      studioType: typeMap[variable.code.toLocaleLowerCase()] ?? variable.studioType ?? 'text',
+    }))
+  } catch {
+    return []
+  }
 }
 
-function sha256(data: string | Buffer) { return createHash('sha256').update(data).digest('hex') }
+function sha256(data: string | Buffer) {
+  return createHash('sha256').update(data).digest('hex')
+}
 
 function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
   if (value && typeof value === 'object') {
     const object = value as Record<string, unknown>
-    return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${stableJson(object[key])}`).join(',')}}`
+    return `{${Object.keys(object)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${stableJson(object[key])}`)
+      .join(',')}}`
   }
   return JSON.stringify(value)
 }
@@ -759,8 +1132,11 @@ function nativeDocumentHash(data: string | Buffer) {
 async function scanNativeSets(): Promise<NativeSetInfo[]> {
   const directory = path.join(activeProject, 'data', 'sets')
   let files: string[]
-  try { files = (await fs.readdir(directory)).filter((file) => file.toLowerCase().endsWith('.json')).sort() }
-  catch { return [] }
+  try {
+    files = (await fs.readdir(directory)).filter((file) => file.toLowerCase().endsWith('.json')).sort()
+  } catch {
+    return []
+  }
   const result: NativeSetInfo[] = []
   for (const file of files) {
     try {
@@ -768,16 +1144,25 @@ async function scanNativeSets(): Promise<NativeSetInfo[]> {
       if (!Array.isArray(document.sets)) continue
       document.sets.forEach((set: Record<string, unknown>, index: number) => {
         if (typeof set.name !== 'string' || !Array.isArray(set.items)) return
-        result.push({ file, index, name: set.name, blueprintName: typeof set.blueprint_name === 'string' ? set.blueprint_name : '', itemCount: set.items.length })
+        result.push({
+          file,
+          index,
+          name: set.name,
+          blueprintName: typeof set.blueprint_name === 'string' ? set.blueprint_name : '',
+          itemCount: set.items.length,
+        })
       })
-    } catch { /* ignore malformed or incomplete JSON files */ }
+    } catch {
+      /* ignore malformed or incomplete JSON files */
+    }
   }
   return result
 }
 
 function columnIdForNativeHeader(header: string) {
   if (['title', 'name', 'nome', 'titolo'].includes(header.trim().toLocaleLowerCase())) return 'meta_title'
-  if (['[item amount]', 'amount', 'quantità', 'quantita'].includes(header.trim().toLocaleLowerCase())) return 'meta_quantity'
+  if (['[item amount]', 'amount', 'quantità', 'quantita'].includes(header.trim().toLocaleLowerCase()))
+    return 'meta_quantity'
   return fieldIdFor(header)
 }
 
@@ -789,13 +1174,20 @@ function columnsFromNativeItems(items: Record<string, unknown>[], existing: Colu
       if (!detail || typeof detail !== 'object') continue
       const record = detail as { name?: unknown; data?: unknown }
       if (typeof record.name !== 'string' || !record.data || typeof record.data !== 'object') continue
-      for (const property of Object.keys(record.data)) headers.add(property === 'value' ? record.name : `${record.name}:${property}`)
+      for (const property of Object.keys(record.data))
+        headers.add(property === 'value' ? record.name : `${record.name}:${property}`)
     }
   }
   return [...headers].map((header) => {
     const prior = existing.find((column) => column.header.toLocaleLowerCase() === header.toLocaleLowerCase())
     const fieldId = columnIdForNativeHeader(header)
-    return { ...(prior ?? {}), id: prior?.id ?? `column_${fieldId}`, header, fieldId, type: prior?.type ?? guessFieldType(header) ?? 'text' }
+    return {
+      ...(prior ?? {}),
+      id: prior?.id ?? `column_${fieldId}`,
+      header,
+      fieldId,
+      type: prior?.type ?? guessFieldType(header) ?? 'text',
+    }
   })
 }
 
@@ -803,19 +1195,31 @@ function columnsFromBlueprint(blueprintName: string, existing: ColumnDefinition[
   const blueprint = blueprints.find((item) => item.name === blueprintName)
   if (!blueprint) return []
   const headers = new Map<string, ColumnDefinition['type']>()
-  for (const group of [...(blueprint.front_groups ?? []), ...(blueprint.back_groups ?? []), ...(blueprint.front_layers ?? []), ...(blueprint.back_layers ?? [])]) {
+  for (const group of [
+    ...(blueprint.front_groups ?? []),
+    ...(blueprint.back_groups ?? []),
+    ...(blueprint.front_layers ?? []),
+    ...(blueprint.back_layers ?? []),
+  ]) {
     for (const panel of group.panels ?? []) {
       const data = panel.data ?? {}
       if (String(data.panel_editable ?? '').toLocaleLowerCase() === 'false') continue
       const panelType = String(data.panel_type ?? '').toLocaleLowerCase()
-      if (Object.prototype.hasOwnProperty.call(data, 'value')) headers.set(panel.name, panelType === 'image' ? 'image' : 'text')
+      if (Object.prototype.hasOwnProperty.call(data, 'value'))
+        headers.set(panel.name, panelType === 'image' ? 'image' : 'text')
       if (Object.prototype.hasOwnProperty.call(data, 'color')) headers.set(`${panel.name}:color`, 'color')
     }
   }
   return [...headers].map(([header, type]) => {
     const prior = existing.find((column) => column.header.toLocaleLowerCase() === header.toLocaleLowerCase())
     const fieldId = columnIdForNativeHeader(header)
-    return { ...(prior ?? {}), id: prior?.id ?? `column_${fieldId}`, header, fieldId, type: prior?.type ?? type ?? 'text' }
+    return {
+      ...(prior ?? {}),
+      id: prior?.id ?? `column_${fieldId}`,
+      header,
+      fieldId,
+      type: prior?.type ?? type ?? 'text',
+    }
   })
 }
 
@@ -828,9 +1232,10 @@ function nativeValue(detailMap: Map<string, Record<string, unknown>>, header: st
 
 function mergeColumnDefinitions(...sources: ColumnDefinition[][]): ColumnDefinition[] {
   const merged = new Map<string, ColumnDefinition>()
-  for (const source of sources) for (const column of source) {
-    if (!merged.has(column.fieldId)) merged.set(column.fieldId, structuredClone(column))
-  }
+  for (const source of sources)
+    for (const column of source) {
+      if (!merged.has(column.fieldId)) merged.set(column.fieldId, structuredClone(column))
+    }
   return [...merged.values()]
 }
 
@@ -841,11 +1246,17 @@ function hydrateNativeValues(card: Card, columns: ColumnDefinition[]): Card {
   for (const detail of Array.isArray(item.details) ? item.details : []) {
     if (!detail || typeof detail !== 'object') continue
     const record = detail as { name?: unknown; data?: unknown }
-    if (typeof record.name === 'string' && record.data && typeof record.data === 'object') details.set(record.name, record.data as Record<string, unknown>)
+    if (typeof record.name === 'string' && record.data && typeof record.data === 'object')
+      details.set(record.name, record.data as Record<string, unknown>)
   }
   const values = { ...card.values }
   for (const column of columns) {
-    if (column.fieldId === 'meta_title' || column.fieldId === 'meta_quantity' || Object.prototype.hasOwnProperty.call(values, column.fieldId)) continue
+    if (
+      column.fieldId === 'meta_title' ||
+      column.fieldId === 'meta_quantity' ||
+      Object.prototype.hasOwnProperty.call(values, column.fieldId)
+    )
+      continue
     const value = nativeValue(details, column.header)
     if (value !== null && value !== undefined) values[column.fieldId] = String(value)
   }
@@ -854,10 +1265,17 @@ function hydrateNativeValues(card: Card, columns: ColumnDefinition[]): Card {
 
 function synchronizeBlueprintFields(blueprintName: string, preferredColumns?: ColumnDefinition[]): ColumnDefinition[] {
   const groupedSets = sets.filter((set) => set.blueprintName === blueprintName)
-  const columns = mergeColumnDefinitions(...(preferredColumns ? [preferredColumns] : []), ...groupedSets.map((set) => set.columns))
+  const columns = mergeColumnDefinitions(
+    ...(preferredColumns ? [preferredColumns] : []),
+    ...groupedSets.map((set) => set.columns),
+  )
   for (const set of groupedSets) {
     set.columns = structuredClone(columns)
-    set.cards = ensureGeneratedIdValues(set.cards.map((card) => hydrateNativeValues(card, columns)), columns, randomUUID)
+    set.cards = ensureGeneratedIdValues(
+      set.cards.map((card) => hydrateNativeValues(card, columns)),
+      columns,
+      randomUUID,
+    )
   }
   return columns
 }
@@ -866,7 +1284,11 @@ function replaceBlueprintFields(blueprintName: string, columns: ColumnDefinition
   const groupedSets = sets.filter((set) => set.blueprintName === blueprintName)
   for (const set of groupedSets) {
     set.columns = structuredClone(columns)
-    set.cards = ensureGeneratedIdValues(set.cards.map((card) => hydrateNativeValues(card, columns)), columns, randomUUID)
+    set.cards = ensureGeneratedIdValues(
+      set.cards.map((card) => hydrateNativeValues(card, columns)),
+      columns,
+      randomUUID,
+    )
   }
   return columns
 }
@@ -875,10 +1297,13 @@ function normalizeBlueprintFieldSets(): boolean {
   const before = JSON.stringify(sets)
   for (const set of sets) {
     if (!set.nativeSetFile || set.nativeSetIndex === undefined) continue
-    const nativeSet = nativeSets.find((item) => item.file === path.basename(set.nativeSetFile!) && item.index === set.nativeSetIndex)
+    const nativeSet = nativeSets.find(
+      (item) => item.file === path.basename(set.nativeSetFile!) && item.index === set.nativeSetIndex,
+    )
     if (nativeSet?.blueprintName) set.blueprintName = nativeSet.blueprintName
   }
-  for (const name of new Set(sets.map((set) => set.blueprintName).filter((value): value is string => Boolean(value)))) synchronizeBlueprintFields(name)
+  for (const name of new Set(sets.map((set) => set.blueprintName).filter((value): value is string => Boolean(value))))
+    synchronizeBlueprintFields(name)
   return before !== JSON.stringify(sets)
 }
 
@@ -887,7 +1312,8 @@ function nativeCard(title: string, item: Record<string, unknown>, columns: Colum
   for (const detail of Array.isArray(item.details) ? item.details : []) {
     if (!detail || typeof detail !== 'object') continue
     const record = detail as { name?: unknown; data?: unknown }
-    if (typeof record.name === 'string' && record.data && typeof record.data === 'object') detailMap.set(record.name, record.data as Record<string, unknown>)
+    if (typeof record.name === 'string' && record.data && typeof record.data === 'object')
+      detailMap.set(record.name, record.data as Record<string, unknown>)
   }
   const titleValue = String(nativeValue(detailMap, 'title') ?? title)
   const values: Record<string, string> = {}
@@ -904,17 +1330,26 @@ function nativeCard(title: string, item: Record<string, unknown>, columns: Colum
     tags: existing?.tags ? [...existing.tags] : [],
     quantity: Math.max(1, Number(item.amount) || 1),
     values: { ...(existing?.values ?? {}), ...values },
-    updatedAt: existing?.updatedAt ?? (Number.isFinite(modified) && modified > 0 ? new Date(modified * 1000).toISOString() : new Date().toISOString()),
+    updatedAt:
+      existing?.updatedAt ??
+      (Number.isFinite(modified) && modified > 0 ? new Date(modified * 1000).toISOString() : new Date().toISOString()),
     nativeItem: JSON.parse(JSON.stringify(item)),
   }
 }
 
 function nativeItemFromCard(card: Card, columns: ColumnDefinition[]): Record<string, unknown> {
-  const item = card.nativeItem ? JSON.parse(JSON.stringify(card.nativeItem)) as Record<string, unknown> : { amount: card.quantity, creation_date_unix: Math.floor(Date.now() / 1000), last_modification_date_unix: Math.floor(Date.now() / 1000), details: [] }
+  const item = card.nativeItem
+    ? (JSON.parse(JSON.stringify(card.nativeItem)) as Record<string, unknown>)
+    : {
+        amount: card.quantity,
+        creation_date_unix: Math.floor(Date.now() / 1000),
+        last_modification_date_unix: Math.floor(Date.now() / 1000),
+        details: [],
+      }
   let nativeChanged = !card.nativeItem
   if (Number(item.amount) !== card.quantity) nativeChanged = true
   item.amount = card.quantity
-  const details = Array.isArray(item.details) ? item.details as Array<Record<string, unknown>> : []
+  const details = Array.isArray(item.details) ? (item.details as Array<Record<string, unknown>>) : []
   item.details = details
   for (const column of columns) {
     if (column.fieldId === 'meta_quantity') continue
@@ -922,8 +1357,15 @@ function nativeItemFromCard(card: Card, columns: ColumnDefinition[]): Record<str
     const name = separator >= 0 ? column.header.slice(0, separator) : column.header
     const property = separator >= 0 ? column.header.slice(separator + 1) : 'value'
     let detail = details.find((candidate) => candidate.name === name)
-    if (!detail) { detail = { name, data: {} }; details.push(detail); nativeChanged = true }
-    const data = detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data) ? detail.data as Record<string, unknown> : (detail.data = {}) as Record<string, unknown>
+    if (!detail) {
+      detail = { name, data: {} }
+      details.push(detail)
+      nativeChanged = true
+    }
+    const data =
+      detail.data && typeof detail.data === 'object' && !Array.isArray(detail.data)
+        ? (detail.data as Record<string, unknown>)
+        : ((detail.data = {}) as Record<string, unknown>)
     const value = cardFieldValue(card, column.fieldId)
     const current = data[property]
     let nextValue: unknown = column.type === 'image' && value ? tabletopAssetReference(value) : value
@@ -942,7 +1384,10 @@ async function writeLinkedNativeSets(linkedSets: ProjectSet[]) {
   const filePath = path.join(activeProject, 'data', 'sets', file)
   const original = await fs.readFile(filePath)
   const actualHash = nativeDocumentHash(original)
-  if (linkedSets.some((set) => set.nativeSetHash && actualHash !== set.nativeSetHash)) throw new Error(`Il set nativo ${file} è cambiato fuori da Card Studio. Ricollega o ricarica il set prima di salvare.`)
+  if (linkedSets.some((set) => set.nativeSetHash && actualHash !== set.nativeSetHash))
+    throw new Error(
+      `Il set nativo ${file} è cambiato fuori da Card Studio. Ricollega o ricarica il set prima di salvare.`,
+    )
   const backupDirectory = path.join(activeProject, dataDirName, 'native-backups')
   await fs.mkdir(backupDirectory, { recursive: true })
   const backupPath = path.join(backupDirectory, `${file}.${actualHash.slice(0, 16)}.json`)
@@ -951,9 +1396,11 @@ async function writeLinkedNativeSets(linkedSets: ProjectSet[]) {
   for (const set of linkedSets) {
     if (set.nativeSetIndex === undefined) continue
     const nativeSet = document.sets?.[set.nativeSetIndex]
-    if (!nativeSet || !Array.isArray(nativeSet.items)) throw new Error(`Il set ${file} non ha più la struttura prevista.`)
+    if (!nativeSet || !Array.isArray(nativeSet.items))
+      throw new Error(`Il set ${file} non ha più la struttura prevista.`)
     nativeSet.items = set.cards.map((card) => nativeItemFromCard(card, set.columns))
-    for (let index = 0; index < set.cards.length; index += 1) set.cards[index].nativeItem = JSON.parse(JSON.stringify(nativeSet.items[index]))
+    for (let index = 0; index < set.cards.length; index += 1)
+      set.cards[index].nativeItem = JSON.parse(JSON.stringify(nativeSet.items[index]))
   }
   const serialized = JSON.stringify(document, null, 2)
   const temporary = `${filePath}.card-studio-${crypto.randomUUID()}.tmp`
@@ -978,7 +1425,11 @@ async function writeLinkedNativeSetName(target: ProjectSet) {
     const document = JSON.parse(original.toString('utf8'))
     const nativeSet = document.sets?.[target.nativeSetIndex]
     if (!nativeSet || !Array.isArray(nativeSet.items)) {
-      await writeDiagnostic('error', 'native-set.rename-skipped-missing-set', { file, setName: target.name, index: target.nativeSetIndex })
+      await writeDiagnostic('error', 'native-set.rename-skipped-missing-set', {
+        file,
+        setName: target.name,
+        index: target.nativeSetIndex,
+      })
       return
     }
     if (nativeSet.name === target.name) return
@@ -995,7 +1446,11 @@ async function writeLinkedNativeSetName(target: ProjectSet) {
     for (const set of linked) set.nativeSetHash = nextHash
     nativeSets = await scanNativeSets()
   } catch (error) {
-    await writeDiagnostic('error', 'native-set.rename-sync-failed', { file, setName: target.name, error: error instanceof Error ? { message: error.message, stack: error.stack } : String(error) })
+    await writeDiagnostic('error', 'native-set.rename-sync-failed', {
+      file,
+      setName: target.name,
+      error: error instanceof Error ? { message: error.message, stack: error.stack } : String(error),
+    })
   }
 }
 
@@ -1003,22 +1458,43 @@ async function loadBlueprints(): Promise<TabletopBlueprint[]> {
   if (!activeProject) return []
   const directory = path.join(activeProject, 'data', 'blueprints')
   let files: string[]
-  try { files = (await fs.readdir(directory)).filter((file) => file.toLowerCase().endsWith('.json')).sort() }
-  catch { return [] }
-  const loaded = await Promise.all(files.map(async (file) => {
-    try {
-      const document = JSON.parse(await fs.readFile(path.join(directory, file), 'utf8'))
-      return Array.isArray(document.blueprints) ? document.blueprints.filter((blueprint: unknown): blueprint is TabletopBlueprint => typeof blueprint === 'object' && blueprint !== null && typeof (blueprint as TabletopBlueprint).name === 'string') : []
-    } catch { return [] }
-  }))
+  try {
+    files = (await fs.readdir(directory)).filter((file) => file.toLowerCase().endsWith('.json')).sort()
+  } catch {
+    return []
+  }
+  const loaded = await Promise.all(
+    files.map(async (file) => {
+      try {
+        const document = JSON.parse(await fs.readFile(path.join(directory, file), 'utf8'))
+        return Array.isArray(document.blueprints)
+          ? document.blueprints.filter(
+              (blueprint: unknown): blueprint is TabletopBlueprint =>
+                typeof blueprint === 'object' &&
+                blueprint !== null &&
+                typeof (blueprint as TabletopBlueprint).name === 'string',
+            )
+          : []
+      } catch {
+        return []
+      }
+    }),
+  )
   return loaded.flat()
 }
 
 async function persistProjectList() {
   const listPath = path.join(app.getPath('userData'), 'projects.json')
   let list: Array<{ path: string; lastOpened: string }> = []
-  try { list = JSON.parse(await fs.readFile(listPath, 'utf8')) } catch { /* first project */ }
-  list = [{ path: activeProject, lastOpened: new Date().toISOString() }, ...list.filter((entry) => entry.path !== activeProject)]
+  try {
+    list = JSON.parse(await fs.readFile(listPath, 'utf8'))
+  } catch {
+    /* first project */
+  }
+  list = [
+    { path: activeProject, lastOpened: new Date().toISOString() },
+    ...list.filter((entry) => entry.path !== activeProject),
+  ]
   await fs.writeFile(listPath, JSON.stringify(list, null, 2))
 }
 
@@ -1040,8 +1516,18 @@ async function openProject(folder: string): Promise<ProjectSnapshot> {
     const legacyColumns = path.join(storeDir, 'columns.json')
     if (existsSync(legacyCards)) {
       const cards: Card[] = JSON.parse(await fs.readFile(legacyCards, 'utf8'))
-      const columns: ColumnDefinition[] = existsSync(legacyColumns) ? JSON.parse(await fs.readFile(legacyColumns, 'utf8')) : defaultColumns
-      sets = [{ id: `set_${crypto.randomUUID()}`, name: 'Set principale', sourceFile: existsSync(path.join(folder, 'cards.xlsx')) ? 'cards.xlsx' : undefined, cards, columns }]
+      const columns: ColumnDefinition[] = existsSync(legacyColumns)
+        ? JSON.parse(await fs.readFile(legacyColumns, 'utf8'))
+        : defaultColumns
+      sets = [
+        {
+          id: `set_${crypto.randomUUID()}`,
+          name: 'Set principale',
+          sourceFile: existsSync(path.join(folder, 'cards.xlsx')) ? 'cards.xlsx' : undefined,
+          cards,
+          columns,
+        },
+      ]
       await persistSets(false)
     } else {
       sets = []
@@ -1066,21 +1552,50 @@ async function openProject(folder: string): Promise<ProjectSnapshot> {
 async function connectNativeSet(setId: string, file: string, index: number): Promise<ProjectSnapshot> {
   const target = sets.find((set) => set.id === setId)
   if (!target) throw new Error('Il set Card Studio da collegare non esiste più.')
-  if (target.nativeSetFile) throw new Error(`“${target.name}” è già collegato a un set Tabletop Creator. Scollegalo prima di assegnarne un altro.`)
+  if (target.nativeSetFile)
+    throw new Error(
+      `“${target.name}” è già collegato a un set Tabletop Creator. Scollegalo prima di assegnarne un altro.`,
+    )
   const safeFile = path.basename(file)
-  if (safeFile !== file || !safeFile.toLowerCase().endsWith('.json')) throw new Error('Il file del set nativo non è valido.')
-  const alreadyLinked = sets.find((set) => set.nativeSetFile && path.basename(set.nativeSetFile) === safeFile && set.nativeSetIndex === index)
-  if (alreadyLinked) throw new Error(`Il set Tabletop Creator è già collegato a “${alreadyLinked.name}”. Scollega prima quel collegamento.`)
+  if (safeFile !== file || !safeFile.toLowerCase().endsWith('.json'))
+    throw new Error('Il file del set nativo non è valido.')
+  const alreadyLinked = sets.find(
+    (set) => set.nativeSetFile && path.basename(set.nativeSetFile) === safeFile && set.nativeSetIndex === index,
+  )
+  if (alreadyLinked)
+    throw new Error(
+      `Il set Tabletop Creator è già collegato a “${alreadyLinked.name}”. Scollega prima quel collegamento.`,
+    )
   const filePath = path.join(activeProject, 'data', 'sets', safeFile)
   const raw = await fs.readFile(filePath)
   const document = JSON.parse(raw.toString('utf8'))
   const nativeSet = document.sets?.[index]
-  if (!nativeSet || !Array.isArray(nativeSet.items)) throw new Error('Il set selezionato non è più disponibile nel progetto.')
-  const rawItems = (nativeSet.items as unknown[]).filter((item: unknown): item is Record<string, unknown> => Boolean(item) && typeof item === 'object' && !Array.isArray(item))
-  const nativeBlueprintName = typeof nativeSet.blueprint_name === 'string' && nativeSet.blueprint_name ? nativeSet.blueprint_name : target.blueprintName
-  const blueprintPeers = nativeBlueprintName ? sets.filter((set) => set.id !== target.id && set.blueprintName === nativeBlueprintName) : []
-  const columns = mergeColumnDefinitions(...blueprintPeers.map((set) => set.columns), columnsFromBlueprint(nativeBlueprintName ?? '', target.columns), columnsFromNativeItems(rawItems, target.columns))
-  await writeDiagnostic('info', 'native-set.fields.discovered', { file: safeFile, nativeSetIndex: index, blueprintName: nativeBlueprintName || undefined, itemCount: rawItems.length, fieldCount: columns.length, fieldHeaders: columns.map((column) => column.header) })
+  if (!nativeSet || !Array.isArray(nativeSet.items))
+    throw new Error('Il set selezionato non è più disponibile nel progetto.')
+  const rawItems = (nativeSet.items as unknown[]).filter(
+    (item: unknown): item is Record<string, unknown> =>
+      Boolean(item) && typeof item === 'object' && !Array.isArray(item),
+  )
+  const nativeBlueprintName =
+    typeof nativeSet.blueprint_name === 'string' && nativeSet.blueprint_name
+      ? nativeSet.blueprint_name
+      : target.blueprintName
+  const blueprintPeers = nativeBlueprintName
+    ? sets.filter((set) => set.id !== target.id && set.blueprintName === nativeBlueprintName)
+    : []
+  const columns = mergeColumnDefinitions(
+    ...blueprintPeers.map((set) => set.columns),
+    columnsFromBlueprint(nativeBlueprintName ?? '', target.columns),
+    columnsFromNativeItems(rawItems, target.columns),
+  )
+  await writeDiagnostic('info', 'native-set.fields.discovered', {
+    file: safeFile,
+    nativeSetIndex: index,
+    blueprintName: nativeBlueprintName || undefined,
+    itemCount: rawItems.length,
+    fieldCount: columns.length,
+    fieldHeaders: columns.map((column) => column.header),
+  })
   const existingByTitle = new Map<string, Card[]>()
   for (const card of target.cards) {
     const key = card.title.trim().toLocaleLowerCase()
@@ -1091,9 +1606,12 @@ async function connectNativeSet(setId: string, file: string, index: number): Pro
     for (const detail of Array.isArray(item.details) ? item.details : []) {
       if (!detail || typeof detail !== 'object') continue
       const record = detail as { name?: unknown; data?: unknown }
-      if (typeof record.name === 'string' && record.data && typeof record.data === 'object') details.set(record.name, record.data as Record<string, unknown>)
+      if (typeof record.name === 'string' && record.data && typeof record.data === 'object')
+        details.set(record.name, record.data as Record<string, unknown>)
     }
-    const title = String(details.get('title')?.value ?? `Carta ${itemIndex + 1}`).trim().toLocaleLowerCase()
+    const title = String(details.get('title')?.value ?? `Carta ${itemIndex + 1}`)
+      .trim()
+      .toLocaleLowerCase()
     const existing = existingByTitle.get(title)?.shift()
     return nativeCard(`Carta ${itemIndex + 1}`, item, columns, existing)
   })
@@ -1115,14 +1633,22 @@ async function createNativeSet(setId: string, name: string, blueprintName: strin
   const target = sets.find((set) => set.id === setId)
   const trimmedName = name.trim()
   if (!target) throw new Error('Il set Card Studio da collegare non esiste più.')
-  if (target.nativeSetFile) throw new Error(`“${target.name}” è già collegato a un set Tabletop Creator. Scollegalo prima di crearne un altro.`)
+  if (target.nativeSetFile)
+    throw new Error(`“${target.name}” è già collegato a un set Tabletop Creator. Scollegalo prima di crearne un altro.`)
   if (!trimmedName) throw new Error('Inserisci un nome per il set Tabletop Creator.')
-  if (!blueprints.some((blueprint) => blueprint.name === blueprintName)) throw new Error('Scegli un blueprint presente nel progetto Tabletop Creator.')
-  if (nativeSets.some((nativeSet) => nativeSet.name.toLocaleLowerCase() === trimmedName.toLocaleLowerCase())) throw new Error(`Esiste già un set Tabletop Creator chiamato “${trimmedName}”.`)
-  const existingBlueprintColumns = sets.filter((set) => set.id !== target.id && set.blueprintName === blueprintName).map((set) => set.columns)
+  if (!blueprints.some((blueprint) => blueprint.name === blueprintName))
+    throw new Error('Scegli un blueprint presente nel progetto Tabletop Creator.')
+  if (nativeSets.some((nativeSet) => nativeSet.name.toLocaleLowerCase() === trimmedName.toLocaleLowerCase()))
+    throw new Error(`Esiste già un set Tabletop Creator chiamato “${trimmedName}”.`)
+  const existingBlueprintColumns = sets
+    .filter((set) => set.id !== target.id && set.blueprintName === blueprintName)
+    .map((set) => set.columns)
   target.blueprintName = blueprintName
   target.name = trimmedName
-  const sharedColumns = synchronizeBlueprintFields(blueprintName, mergeColumnDefinitions(...existingBlueprintColumns, target.columns))
+  const sharedColumns = synchronizeBlueprintFields(
+    blueprintName,
+    mergeColumnDefinitions(...existingBlueprintColumns, target.columns),
+  )
   target.columns = sharedColumns
   const nativeSet = {
     name: trimmedName,
@@ -1139,7 +1665,8 @@ async function createNativeSet(setId: string, name: string, blueprintName: strin
   let file = `${crypto.randomUUID()}.json`
   while (existsSync(path.join(directory, file))) file = `${crypto.randomUUID()}.json`
   await fs.writeFile(path.join(directory, file), serialized, { flag: 'wx' })
-  for (let index = 0; index < target.cards.length; index += 1) target.cards[index].nativeItem = JSON.parse(JSON.stringify(nativeSet.items[index]))
+  for (let index = 0; index < target.cards.length; index += 1)
+    target.cards[index].nativeItem = JSON.parse(JSON.stringify(nativeSet.items[index]))
   target.nativeSetFile = file
   target.nativeSetIndex = 0
   target.nativeSetHash = nativeDocumentHash(serialized)
@@ -1160,15 +1687,20 @@ async function disconnectNativeSet(setId: string): Promise<ProjectSnapshot> {
   return snapshot()
 }
 
-async function resolveNativeSetNameConflict(setId: string, resolution: 'card-studio' | 'tabletop'): Promise<ProjectSnapshot> {
+async function resolveNativeSetNameConflict(
+  setId: string,
+  resolution: 'card-studio' | 'tabletop',
+): Promise<ProjectSnapshot> {
   const target = sets.find((set) => set.id === setId)
-  if (!target?.nativeSetFile || target.nativeSetIndex === undefined) throw new Error('Il set non è collegato a Tabletop Creator.')
+  if (!target?.nativeSetFile || target.nativeSetIndex === undefined)
+    throw new Error('Il set non è collegato a Tabletop Creator.')
   const file = path.basename(target.nativeSetFile)
   const filePath = path.join(activeProject, 'data', 'sets', file)
   const raw = await fs.readFile(filePath)
   const document = JSON.parse(raw.toString('utf8'))
   const nativeSet = document.sets?.[target.nativeSetIndex]
-  if (!nativeSet || !Array.isArray(nativeSet.items)) throw new Error('Il set nativo non è più disponibile nel progetto.')
+  if (!nativeSet || !Array.isArray(nativeSet.items))
+    throw new Error('Il set nativo non è più disponibile nel progetto.')
   if (resolution === 'card-studio') nativeSet.name = target.name
   else target.name = String(nativeSet.name || target.name)
   const serialized = JSON.stringify(document, null, 2)
@@ -1183,7 +1715,8 @@ async function resolveNativeSetNameConflict(setId: string, resolution: 'card-stu
     await fs.rename(temporary, filePath)
   }
   const nextHash = nativeDocumentHash(resolution === 'card-studio' ? serialized : raw)
-  for (const set of sets) if (set.nativeSetFile && path.basename(set.nativeSetFile) === file) set.nativeSetHash = nextHash
+  for (const set of sets)
+    if (set.nativeSetFile && path.basename(set.nativeSetFile) === file) set.nativeSetHash = nextHash
   await persistSets(false)
   nativeSets = await scanNativeSets()
   return snapshot()
@@ -1193,22 +1726,34 @@ async function saveBlueprintAssignments(assignments: Record<string, string>): Pr
   const previousBlueprints = new Map(sets.map((set) => [set.id, set.blueprintName]))
   const updates = sets.map((set) => {
     const requested = (assignments[set.id] ?? '').trim()
-    if (requested && !blueprints.some((blueprint) => blueprint.name === requested)) throw new Error(`Il blueprint “${requested}” non è disponibile nel progetto.`)
+    if (requested && !blueprints.some((blueprint) => blueprint.name === requested))
+      throw new Error(`Il blueprint “${requested}” non è disponibile nel progetto.`)
     if (set.nativeSetFile) {
-      const nativeSet = nativeSets.find((item) => item.file === path.basename(set.nativeSetFile!) && item.index === set.nativeSetIndex)
+      const nativeSet = nativeSets.find(
+        (item) => item.file === path.basename(set.nativeSetFile!) && item.index === set.nativeSetIndex,
+      )
       const nativeBlueprint = nativeSet?.blueprintName ?? ''
-      if (requested && requested !== nativeBlueprint) throw new Error(`“${set.name}” è collegato a un set nativo che usa il blueprint “${nativeBlueprint || 'non assegnato'}”. Cambia prima il collegamento nativo.`)
+      if (requested && requested !== nativeBlueprint)
+        throw new Error(
+          `“${set.name}” è collegato a un set nativo che usa il blueprint “${nativeBlueprint || 'non assegnato'}”. Cambia prima il collegamento nativo.`,
+        )
       return { set, blueprintName: nativeBlueprint || undefined }
     }
     return { set, blueprintName: requested || undefined }
   })
   for (const { set, blueprintName } of updates) set.blueprintName = blueprintName
-  for (const name of new Set(updates.map(({ blueprintName }) => blueprintName).filter((value): value is string => Boolean(value)))) {
+  for (const name of new Set(
+    updates.map(({ blueprintName }) => blueprintName).filter((value): value is string => Boolean(value)),
+  )) {
     const established = sets.filter((set) => set.blueprintName === name && previousBlueprints.get(set.id) === name)
     const joining = sets.filter((set) => set.blueprintName === name && previousBlueprints.get(set.id) !== name)
-    const seedColumns = mergeColumnDefinitions(...established.map((set) => set.columns), ...joining.map((set) => set.columns))
+    const seedColumns = mergeColumnDefinitions(
+      ...established.map((set) => set.columns),
+      ...joining.map((set) => set.columns),
+    )
     const columns = synchronizeBlueprintFields(name, seedColumns)
-    for (const set of sets.filter((item) => item.blueprintName === name)) set.cards = set.cards.map((card) => resolveConditionalValues(columns, card))
+    for (const set of sets.filter((item) => item.blueprintName === name))
+      set.cards = set.cards.map((card) => resolveConditionalValues(columns, card))
   }
   await persistSets()
   return snapshot()
@@ -1226,7 +1771,13 @@ async function duplicateProjectSet(setId: string): Promise<ProjectSnapshot> {
     id: `set_${crypto.randomUUID()}`,
     name: copyName,
     sourceFile: undefined,
-    cards: source.cards.map((card) => ({ ...card, id: `card_${crypto.randomUUID()}`, tags: [...card.tags], values: { ...card.values }, nativeItem: card.nativeItem ? JSON.parse(JSON.stringify(card.nativeItem)) : undefined })),
+    cards: source.cards.map((card) => ({
+      ...card,
+      id: `card_${crypto.randomUUID()}`,
+      tags: [...card.tags],
+      values: { ...card.values },
+      nativeItem: card.nativeItem ? JSON.parse(JSON.stringify(card.nativeItem)) : undefined,
+    })),
     columns: structuredClone(source.columns),
     importBaseline: undefined,
     importMatchFieldId: undefined,
@@ -1255,10 +1806,15 @@ async function duplicateProjectSet(setId: string): Promise<ProjectSnapshot> {
     nativeCopy.name = nativeName
     nativeCopy.hint_order_index = nativeSets.length
     const nativeItems = Array.isArray(nativeCopy.items) ? nativeCopy.items : []
-    duplicate.cards = duplicate.cards.map((card, index) => ({ ...card, nativeItem: JSON.parse(JSON.stringify(nativeItems[index] ?? card.nativeItem ?? {})) }))
+    duplicate.cards = duplicate.cards.map((card, index) => ({
+      ...card,
+      nativeItem: JSON.parse(JSON.stringify(nativeItems[index] ?? card.nativeItem ?? {})),
+    }))
     const copiedNativeItems = duplicate.cards.map((card) => nativeItemFromCard(card, duplicate.columns))
     nativeCopy.items = copiedNativeItems
-    duplicate.cards.forEach((card, index) => { card.nativeItem = JSON.parse(JSON.stringify(copiedNativeItems[index])) })
+    duplicate.cards.forEach((card, index) => {
+      card.nativeItem = JSON.parse(JSON.stringify(copiedNativeItems[index]))
+    })
     const nativeDocument = { ...document, sets: [nativeCopy] }
     const serialized = JSON.stringify(nativeDocument, null, 2)
     const directory = path.join(activeProject, 'data', 'sets')
@@ -1288,22 +1844,42 @@ async function moveCardBetweenSets(cardId: string, targetSetId: string, draft?: 
     const file = path.basename(set.nativeSetFile)
     try {
       const current = await fs.readFile(path.join(activeProject, 'data', 'sets', file))
-      if (nativeDocumentHash(current) !== set.nativeSetHash) await writeDiagnostic('info', 'native-set.move-will-save-locally', { file, setName: set.name })
+      if (nativeDocumentHash(current) !== set.nativeSetHash)
+        await writeDiagnostic('info', 'native-set.move-will-save-locally', { file, setName: set.name })
     } catch (error) {
-      await writeDiagnostic('info', 'native-set.move-will-save-locally', { file, setName: set.name, error: error instanceof Error ? error.message : String(error) })
+      await writeDiagnostic('info', 'native-set.move-will-save-locally', {
+        file,
+        setName: set.name,
+        error: error instanceof Error ? error.message : String(error),
+      })
     }
   }
-  if (source.blueprintName && source.blueprintName === target.blueprintName) synchronizeBlueprintFields(source.blueprintName, mergeColumnDefinitions(source.columns, target.columns))
-  const card = draft ? resolveConditionalValues(source.columns, { ...draft, id: cardId, updatedAt: new Date().toISOString() }) : source.cards[index]
+  if (source.blueprintName && source.blueprintName === target.blueprintName)
+    synchronizeBlueprintFields(source.blueprintName, mergeColumnDefinitions(source.columns, target.columns))
+  const card = draft
+    ? resolveConditionalValues(source.columns, { ...draft, id: cardId, updatedAt: new Date().toISOString() })
+    : source.cards[index]
   const values = { ...card.values }
   for (const targetColumn of target.columns) {
     if (values[targetColumn.fieldId] !== undefined) continue
-    const sourceColumn = source.columns.find((column) => column.fieldId === targetColumn.fieldId || column.header.trim().toLocaleLowerCase() === targetColumn.header.trim().toLocaleLowerCase() || (column.fieldLabel?.trim() && column.fieldLabel.trim().toLocaleLowerCase() === targetColumn.fieldLabel?.trim().toLocaleLowerCase()))
-    if (sourceColumn && values[sourceColumn.fieldId] !== undefined) values[targetColumn.fieldId] = values[sourceColumn.fieldId]
+    const sourceColumn = source.columns.find(
+      (column) =>
+        column.fieldId === targetColumn.fieldId ||
+        column.header.trim().toLocaleLowerCase() === targetColumn.header.trim().toLocaleLowerCase() ||
+        (column.fieldLabel?.trim() &&
+          column.fieldLabel.trim().toLocaleLowerCase() === targetColumn.fieldLabel?.trim().toLocaleLowerCase()),
+    )
+    if (sourceColumn && values[sourceColumn.fieldId] !== undefined)
+      values[targetColumn.fieldId] = values[sourceColumn.fieldId]
   }
   source.cards.splice(index, 1)
   const targetTemplate = target.cards[0]?.nativeItem
-  target.cards.push({ ...card, values, nativeItem: targetTemplate ? JSON.parse(JSON.stringify(targetTemplate)) : undefined, updatedAt: new Date().toISOString() })
+  target.cards.push({
+    ...card,
+    values,
+    nativeItem: targetTemplate ? JSON.parse(JSON.stringify(targetTemplate)) : undefined,
+    updatedAt: new Date().toISOString(),
+  })
   ensureSetGeneratedIds(target)
   activeSetId = target.id
   await persistSets()
@@ -1313,27 +1889,53 @@ async function moveCardBetweenSets(cardId: string, targetSetId: string, draft?: 
 async function listProjects(): Promise<ProjectSummary[]> {
   const listPath = path.join(app.getPath('userData'), 'projects.json')
   let entries: Array<{ path: string; lastOpened?: string }> = []
-  try { entries = JSON.parse(await fs.readFile(listPath, 'utf8')) } catch {
+  try {
+    entries = JSON.parse(await fs.readFile(listPath, 'utf8'))
+  } catch {
     try {
       const recent = JSON.parse(await fs.readFile(path.join(app.getPath('userData'), 'recent-project.json'), 'utf8'))
       if (existsSync(recent.folder)) entries = [{ path: recent.folder }]
-    } catch { /* no projects saved */ }
+    } catch {
+      /* no projects saved */
+    }
   }
   const result: ProjectSummary[] = []
   for (const entry of entries) {
     if (!existsSync(entry.path)) continue
     const dataDir = path.join(entry.path, dataDirName)
     let projectSets: ProjectSet[] = []
-    try { projectSets = await readSplitSetStore(dataDir) ?? [] } catch { /* try legacy store */ }
-    if (!projectSets.length) try { projectSets = JSON.parse(await fs.readFile(path.join(dataDir, 'sets.json'), 'utf8')) } catch {
-      try {
-        const cards: Card[] = JSON.parse(await fs.readFile(path.join(dataDir, 'cards.json'), 'utf8'))
-        projectSets = [{ id: 'legacy', name: 'Set principale', cards, columns: [] }]
-      } catch { /* new project */ }
+    try {
+      projectSets = (await readSplitSetStore(dataDir)) ?? []
+    } catch {
+      /* try legacy store */
     }
+    if (!projectSets.length)
+      try {
+        projectSets = JSON.parse(await fs.readFile(path.join(dataDir, 'sets.json'), 'utf8'))
+      } catch {
+        try {
+          const cards: Card[] = JSON.parse(await fs.readFile(path.join(dataDir, 'cards.json'), 'utf8'))
+          projectSets = [{ id: 'legacy', name: 'Set principale', cards, columns: [] }]
+        } catch {
+          /* new project */
+        }
+      }
     const files = await fs.readdir(entry.path, { withFileTypes: true })
-    const fileCount = files.filter((file) => file.isFile() && /\.xlsx$/i.test(file.name) && !file.name.startsWith('~$') && !/-cms-export\.xlsx$/i.test(file.name)).length
-    result.push({ path: entry.path, name: path.basename(entry.path), setCount: projectSets.length, cardCount: projectSets.reduce((sum, set) => sum + set.cards.length, 0), fileCount, lastOpened: entry.lastOpened })
+    const fileCount = files.filter(
+      (file) =>
+        file.isFile() &&
+        /\.xlsx$/i.test(file.name) &&
+        !file.name.startsWith('~$') &&
+        !/-cms-export\.xlsx$/i.test(file.name),
+    ).length
+    result.push({
+      path: entry.path,
+      name: path.basename(entry.path),
+      setCount: projectSets.length,
+      cardCount: projectSets.reduce((sum, set) => sum + set.cards.length, 0),
+      fileCount,
+      lastOpened: entry.lastOpened,
+    })
   }
   return result
 }
@@ -1342,14 +1944,24 @@ function runGit(args: string[], env?: NodeJS.ProcessEnv): Promise<{ stdout: stri
   return runGitAt(activeProject, args, env)
 }
 
-function runGitAt(cwd: string, args: string[], env?: NodeJS.ProcessEnv, timeout = 45_000): Promise<{ stdout: string; stderr: string }> {
+function runGitAt(
+  cwd: string,
+  args: string[],
+  env?: NodeJS.ProcessEnv,
+  timeout = 45_000,
+): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    execFile('git', args, { cwd, env: env ?? process.env, timeout, maxBuffer: 8 * 1024 * 1024 }, (error, stdout, stderr) => {
-      if (error) {
-        const detail = stderr.trim() || stdout.trim() || error.message
-        reject(new Error(detail))
-      } else resolve({ stdout: stdout.trim(), stderr: stderr.trim() })
-    })
+    execFile(
+      'git',
+      args,
+      { cwd, env: env ?? process.env, timeout, maxBuffer: 8 * 1024 * 1024 },
+      (error, stdout, stderr) => {
+        if (error) {
+          const detail = stderr.trim() || stdout.trim() || error.message
+          reject(new Error(detail))
+        } else resolve({ stdout: stdout.trim(), stderr: stderr.trim() })
+      },
+    )
   })
 }
 
@@ -1392,18 +2004,35 @@ interface GitHubApiRepository {
 }
 
 class GitHubApiError extends Error {
-  constructor(message: string, readonly status: number) { super(message) }
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+  }
 }
 
-const githubProjectTypeCache = new Map<number, { updatedAt: string; type: GitHubProjectRepository['projectType'] | null }>()
+const githubProjectTypeCache = new Map<
+  number,
+  { updatedAt: string; type: GitHubProjectRepository['projectType'] | null }
+>()
 
 async function githubApiRequest(url: string, accessToken: string) {
   const response = await fetch(url, {
-    headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${accessToken}`, 'User-Agent': 'Tabletop Card Studio', 'X-GitHub-Api-Version': '2022-11-28' },
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${accessToken}`,
+      'User-Agent': 'Tabletop Card Studio',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
   })
   if (!response.ok) {
     let message = ''
-    try { message = String((await response.json() as { message?: unknown }).message ?? '') } catch { /* response may not be JSON */ }
+    try {
+      message = String(((await response.json()) as { message?: unknown }).message ?? '')
+    } catch {
+      /* response may not be JSON */
+    }
     throw new GitHubApiError(message || `GitHub ha restituito HTTP ${response.status}.`, response.status)
   }
   return response
@@ -1414,19 +2043,40 @@ async function githubApiCollection<T>(url: string, accessToken: string, collecti
   let nextUrl: string | undefined = url
   while (nextUrl) {
     const response = await githubApiRequest(nextUrl, accessToken)
-    const payload = await response.json() as Record<string, unknown>
+    const payload = (await response.json()) as Record<string, unknown>
     const page = payload[collectionKey]
     if (!Array.isArray(page)) throw new Error(`La risposta di GitHub non contiene l'elenco ${collectionKey}.`)
-    items.push(...page as T[])
-    nextUrl = response.headers.get('link')?.split(',').map((entry) => entry.trim()).find((entry) => /rel="next"/.test(entry))?.match(/<([^>]+)>/)?.[1]
+    items.push(...(page as T[]))
+    nextUrl = response.headers
+      .get('link')
+      ?.split(',')
+      .map((entry) => entry.trim())
+      .find((entry) => /rel="next"/.test(entry))
+      ?.match(/<([^>]+)>/)?.[1]
   }
   return items
 }
 
 async function githubInstalledRepositories(accessToken: string): Promise<GitHubApiRepository[]> {
-  const installations = await githubApiCollection<GitHubApiInstallation>('https://api.github.com/user/installations?per_page=100', accessToken, 'installations')
-  const appInstallations = installations.filter((installation) => installation.app_slug?.toLocaleLowerCase() === GITHUB_APP_SLUG.toLocaleLowerCase() && Number.isInteger(installation.id))
-  const repositoryPages = await Promise.all(appInstallations.map((installation) => githubApiCollection<GitHubApiRepository>(`https://api.github.com/user/installations/${installation.id}/repositories?per_page=100`, accessToken, 'repositories')))
+  const installations = await githubApiCollection<GitHubApiInstallation>(
+    'https://api.github.com/user/installations?per_page=100',
+    accessToken,
+    'installations',
+  )
+  const appInstallations = installations.filter(
+    (installation) =>
+      installation.app_slug?.toLocaleLowerCase() === GITHUB_APP_SLUG.toLocaleLowerCase() &&
+      Number.isInteger(installation.id),
+  )
+  const repositoryPages = await Promise.all(
+    appInstallations.map((installation) =>
+      githubApiCollection<GitHubApiRepository>(
+        `https://api.github.com/user/installations/${installation.id}/repositories?per_page=100`,
+        accessToken,
+        'repositories',
+      ),
+    ),
+  )
   const repositories = new Map<number, GitHubApiRepository>()
   for (const page of repositoryPages) for (const repository of page) repositories.set(repository.id, repository)
   return [...repositories.values()]
@@ -1434,13 +2084,24 @@ async function githubInstalledRepositories(accessToken: string): Promise<GitHubA
 
 function githubProjectTypeFromPaths(paths: string[]): GitHubProjectRepository['projectType'] | null {
   const files = paths.map((file) => file.toLocaleLowerCase())
-  if (files.some((file) => /^\.tabletop-card-studio\/(?:sets\.json|sets\/index\.json|cards\.json)$/.test(file))) return 'Card Studio'
-  if (files.some((file) => /^data\/(?:sets|blueprints)\/[^/]+\.json$/.test(file) || file === 'data/variables.json')) return 'Tabletop Creator'
-  if (files.some((file) => !file.includes('/') && /\.xlsx$/i.test(file) && !file.startsWith('~$') && !/-cms-export\.xlsx$/i.test(file))) return 'Foglio Excel'
+  if (files.some((file) => /^\.tabletop-card-studio\/(?:sets\.json|sets\/index\.json|cards\.json)$/.test(file)))
+    return 'Card Studio'
+  if (files.some((file) => /^data\/(?:sets|blueprints)\/[^/]+\.json$/.test(file) || file === 'data/variables.json'))
+    return 'Tabletop Creator'
+  if (
+    files.some(
+      (file) =>
+        !file.includes('/') && /\.xlsx$/i.test(file) && !file.startsWith('~$') && !/-cms-export\.xlsx$/i.test(file),
+    )
+  )
+    return 'Foglio Excel'
   return null
 }
 
-async function githubRepositoryProjectType(repository: GitHubApiRepository, accessToken: string): Promise<GitHubProjectRepository['projectType'] | null> {
+async function githubRepositoryProjectType(
+  repository: GitHubApiRepository,
+  accessToken: string,
+): Promise<GitHubProjectRepository['projectType'] | null> {
   const cached = githubProjectTypeCache.get(repository.id)
   if (cached?.updatedAt === repository.updated_at) return cached.type
   if (!repository.owner?.login || !repository.default_branch) return null
@@ -1448,9 +2109,16 @@ async function githubRepositoryProjectType(repository: GitHubApiRepository, acce
     const owner = encodeURIComponent(repository.owner.login)
     const name = encodeURIComponent(repository.name)
     const branch = encodeURIComponent(repository.default_branch)
-    const response = await githubApiRequest(`https://api.github.com/repos/${owner}/${name}/git/trees/${branch}?recursive=1`, accessToken)
-    const payload = await response.json() as { tree?: Array<{ path?: string; type?: string }> }
-    const type = githubProjectTypeFromPaths((payload.tree ?? []).filter((item) => item.type === 'blob' && typeof item.path === 'string').map((item) => item.path!))
+    const response = await githubApiRequest(
+      `https://api.github.com/repos/${owner}/${name}/git/trees/${branch}?recursive=1`,
+      accessToken,
+    )
+    const payload = (await response.json()) as { tree?: Array<{ path?: string; type?: string }> }
+    const type = githubProjectTypeFromPaths(
+      (payload.tree ?? [])
+        .filter((item) => item.type === 'blob' && typeof item.path === 'string')
+        .map((item) => item.path!),
+    )
     githubProjectTypeCache.set(repository.id, { updatedAt: repository.updated_at, type })
     return type
   } catch (error) {
@@ -1465,10 +2133,15 @@ async function githubRepositoryProjectType(repository: GitHubApiRepository, acce
 async function localGitHubRepositoryUrls(): Promise<Set<string>> {
   const urls = new Set<string>()
   const projects = await listProjects()
-  const remotes = await Promise.all(projects.map(async (project) => {
-    try { return (await runGitAt(project.path, ['config', '--get', 'remote.origin.url'], undefined, 8_000)).stdout }
-    catch { return '' }
-  }))
+  const remotes = await Promise.all(
+    projects.map(async (project) => {
+      try {
+        return (await runGitAt(project.path, ['config', '--get', 'remote.origin.url'], undefined, 8_000)).stdout
+      } catch {
+        return ''
+      }
+    }),
+  )
   for (const remote of remotes) {
     const url = githubWebUrl(remote)
     if (url) urls.add(url.toLocaleLowerCase())
@@ -1487,20 +2160,33 @@ async function listGitHubProjectRepositories(): Promise<GitHubProjectRepository[
   })
   const classified: Array<{ repository: GitHubApiRepository; type: GitHubProjectRepository['projectType'] | null }> = []
   for (let offset = 0; offset < candidates.length; offset += 4) {
-    const batch = await Promise.all(candidates.slice(offset, offset + 4).map(async (repository) => ({ repository, type: await githubRepositoryProjectType(repository, credential.accessToken) })))
+    const batch = await Promise.all(
+      candidates
+        .slice(offset, offset + 4)
+        .map(async (repository) => ({
+          repository,
+          type: await githubRepositoryProjectType(repository, credential.accessToken),
+        })),
+    )
     classified.push(...batch)
   }
-  return classified.filter((item): item is { repository: GitHubApiRepository; type: GitHubProjectRepository['projectType'] } => item.type !== null).map(({ repository, type }) => ({
-    id: repository.id,
-    name: repository.name,
-    fullName: repository.full_name,
-    description: repository.description ?? '',
-    htmlUrl: repository.html_url,
-    isPrivate: repository.private,
-    updatedAt: repository.updated_at,
-    avatarUrl: repository.owner?.avatar_url ?? '',
-    projectType: type,
-  })).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
+  return classified
+    .filter(
+      (item): item is { repository: GitHubApiRepository; type: GitHubProjectRepository['projectType'] } =>
+        item.type !== null,
+    )
+    .map(({ repository, type }) => ({
+      id: repository.id,
+      name: repository.name,
+      fullName: repository.full_name,
+      description: repository.description ?? '',
+      htmlUrl: repository.html_url,
+      isPrivate: repository.private,
+      updatedAt: repository.updated_at,
+      avatarUrl: repository.owner?.avatar_url ?? '',
+      projectType: type,
+    }))
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
 }
 
 interface GitHubOAuthResponse {
@@ -1516,11 +2202,17 @@ interface GitHubOAuthResponse {
   error_description?: string
 }
 
-function githubCredentialPath() { return path.join(app.getPath('userData'), 'github-auth.json') }
+function githubCredentialPath() {
+  return path.join(app.getPath('userData'), 'github-auth.json')
+}
 
 async function ensureGithubSecureStorage() {
-  if (!await safeStorage.isAsyncEncryptionAvailable()) throw new Error('La cassaforte delle credenziali di sistema non è disponibile. Verifica che il portachiavi sia attivo e riprova.')
-  if (process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text') throw new Error('Card Studio non trova un portachiavi sicuro. Attiva GNOME Keyring o KWallet e riprova.')
+  if (!(await safeStorage.isAsyncEncryptionAvailable()))
+    throw new Error(
+      'La cassaforte delle credenziali di sistema non è disponibile. Verifica che il portachiavi sia attivo e riprova.',
+    )
+  if (process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text')
+    throw new Error('Card Studio non trova un portachiavi sicuro. Attiva GNOME Keyring o KWallet e riprova.')
 }
 
 async function readGithubCredential(): Promise<StoredGitHubCredential | null> {
@@ -1531,7 +2223,8 @@ async function readGithubCredential(): Promise<StoredGitHubCredential | null> {
   if (!document.encrypted) throw new Error('Le credenziali GitHub salvate non sono valide. Esci e accedi di nuovo.')
   const { result } = await safeStorage.decryptStringAsync(Buffer.from(document.encrypted, 'base64'))
   const credential = JSON.parse(result) as StoredGitHubCredential
-  if (!credential.accessToken || !credential.login) throw new Error('Le credenziali GitHub salvate non sono valide. Esci e accedi di nuovo.')
+  if (!credential.accessToken || !credential.login)
+    throw new Error('Le credenziali GitHub salvate non sono valide. Esci e accedi di nuovo.')
   return credential
 }
 
@@ -1545,7 +2238,13 @@ async function saveGithubCredential(credential: StoredGitHubCredential) {
 }
 
 async function githubAuthStatus(): Promise<GitHubAuthStatus> {
-  const status: GitHubAuthStatus = { configured: Boolean(GITHUB_APP_CLIENT_ID.trim() && GITHUB_APP_SLUG.trim()), authenticated: false, login: '', avatarUrl: '', appInstalled: false }
+  const status: GitHubAuthStatus = {
+    configured: Boolean(GITHUB_APP_CLIENT_ID.trim() && GITHUB_APP_SLUG.trim()),
+    authenticated: false,
+    login: '',
+    avatarUrl: '',
+    appInstalled: false,
+  }
   if (!status.configured) return status
   let credential: StoredGitHubCredential | null
   try {
@@ -1557,14 +2256,29 @@ async function githubAuthStatus(): Promise<GitHubAuthStatus> {
   const accountStatus = { ...status, authenticated: true, login: credential.login, avatarUrl: credential.avatarUrl }
   try {
     const response = await fetch('https://api.github.com/user/installations?per_page=100', {
-      headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${credential.accessToken}`, 'User-Agent': 'Tabletop Card Studio' },
+      headers: {
+        Accept: 'application/vnd.github+json',
+        Authorization: `Bearer ${credential.accessToken}`,
+        'User-Agent': 'Tabletop Card Studio',
+      },
     })
-    if (!response.ok) throw new Error('Non riesco a verificare se Tabletop Card Studio è installata sul tuo account GitHub.')
-    const installations = await response.json() as { installations?: Array<{ app_slug?: string; account?: { login?: string } }> }
-    const remote = activeProject ? await runGit(['config', '--get', 'remote.origin.url']).catch(() => ({ stdout: '', stderr: '' })) : { stdout: '', stderr: '' }
+    if (!response.ok)
+      throw new Error('Non riesco a verificare se Tabletop Card Studio è installata sul tuo account GitHub.')
+    const installations = (await response.json()) as {
+      installations?: Array<{ app_slug?: string; account?: { login?: string } }>
+    }
+    const remote = activeProject
+      ? await runGit(['config', '--get', 'remote.origin.url']).catch(() => ({ stdout: '', stderr: '' }))
+      : { stdout: '', stderr: '' }
     const repositoryUrl = githubWebUrl(remote.stdout)
     const targetAccount = repositoryUrl ? new URL(repositoryUrl).pathname.split('/')[1] : credential.login
-    const appInstalled = Boolean(installations.installations?.some((installation) => installation.app_slug === GITHUB_APP_SLUG && installation.account?.login?.toLocaleLowerCase() === targetAccount.toLocaleLowerCase()))
+    const appInstalled = Boolean(
+      installations.installations?.some(
+        (installation) =>
+          installation.app_slug === GITHUB_APP_SLUG &&
+          installation.account?.login?.toLocaleLowerCase() === targetAccount.toLocaleLowerCase(),
+      ),
+    )
     return { ...accountStatus, appInstalled }
   } catch (error) {
     return { ...accountStatus, error: error instanceof Error ? error.message : String(error) }
@@ -1572,55 +2286,100 @@ async function githubAuthStatus(): Promise<GitHubAuthStatus> {
 }
 
 async function startGithubLogin(): Promise<GitHubDeviceLogin> {
-  if (!GITHUB_APP_CLIENT_ID.trim() || !GITHUB_APP_SLUG.trim()) throw new Error('Questa versione non è ancora configurata per l’accesso GitHub. Mancano Client ID e slug della GitHub App.')
+  if (!GITHUB_APP_CLIENT_ID.trim() || !GITHUB_APP_SLUG.trim())
+    throw new Error(
+      'Questa versione non è ancora configurata per l’accesso GitHub. Mancano Client ID e slug della GitHub App.',
+    )
   await ensureGithubSecureStorage()
   const response = await fetch('https://github.com/login/device/code', {
     method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Tabletop Card Studio' },
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': 'Tabletop Card Studio',
+    },
     body: new URLSearchParams({ client_id: GITHUB_APP_CLIENT_ID.trim(), scope: 'offline_access' }),
   })
-  const payload = await response.json() as GitHubOAuthResponse
+  const payload = (await response.json()) as GitHubOAuthResponse
   if (!response.ok || !payload.device_code || !payload.user_code || !payload.verification_uri || !payload.expires_in) {
     throw new Error(payload.error_description || payload.error || 'GitHub non ha avviato l’accesso. Riprova tra poco.')
   }
   const intervalSeconds = Math.max(5, payload.interval ?? 5)
   const expiresAt = Date.now() + payload.expires_in * 1000
-  pendingGithubLogin = { deviceCode: payload.device_code, intervalSeconds, nextPollAt: Date.now() + intervalSeconds * 1000, expiresAt }
+  pendingGithubLogin = {
+    deviceCode: payload.device_code,
+    intervalSeconds,
+    nextPollAt: Date.now() + intervalSeconds * 1000,
+    expiresAt,
+  }
   return { userCode: payload.user_code, verificationUri: payload.verification_uri, intervalSeconds, expiresAt }
 }
 
 async function pollGithubLogin(): Promise<GitHubLoginPollResult> {
   const pending = pendingGithubLogin
-  if (!pending || Date.now() >= pending.expiresAt) { pendingGithubLogin = null; return { status: 'expired' } }
+  if (!pending || Date.now() >= pending.expiresAt) {
+    pendingGithubLogin = null
+    return { status: 'expired' }
+  }
   if (Date.now() < pending.nextPollAt) return { status: 'pending' }
   pending.nextPollAt = Date.now() + pending.intervalSeconds * 1000
   const response = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Tabletop Card Studio' },
-    body: new URLSearchParams({ client_id: GITHUB_APP_CLIENT_ID.trim(), device_code: pending.deviceCode, grant_type: 'urn:ietf:params:oauth:grant-type:device_code' }),
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': 'Tabletop Card Studio',
+    },
+    body: new URLSearchParams({
+      client_id: GITHUB_APP_CLIENT_ID.trim(),
+      device_code: pending.deviceCode,
+      grant_type: 'urn:ietf:params:oauth:grant-type:device_code',
+    }),
   })
-  const payload = await response.json() as GitHubOAuthResponse
+  const payload = (await response.json()) as GitHubOAuthResponse
   if (!response.ok) throw new Error(payload.error_description || payload.error || 'GitHub non ha completato l’accesso.')
   if (pendingGithubLogin !== pending) return { status: 'expired' }
   if (payload.error === 'authorization_pending') return { status: 'pending' }
-  if (payload.error === 'slow_down') { pending.intervalSeconds += 5; pending.nextPollAt = Date.now() + pending.intervalSeconds * 1000; return { status: 'pending', intervalSeconds: pending.intervalSeconds } }
-  if (payload.error === 'expired_token' || payload.error === 'access_denied') { pendingGithubLogin = null; return { status: 'expired' } }
+  if (payload.error === 'slow_down') {
+    pending.intervalSeconds += 5
+    pending.nextPollAt = Date.now() + pending.intervalSeconds * 1000
+    return { status: 'pending', intervalSeconds: pending.intervalSeconds }
+  }
+  if (payload.error === 'expired_token' || payload.error === 'access_denied') {
+    pendingGithubLogin = null
+    return { status: 'expired' }
+  }
   if (!payload.access_token) {
-    if (payload.error) { pendingGithubLogin = null; throw new Error(payload.error_description || payload.error) }
+    if (payload.error) {
+      pendingGithubLogin = null
+      throw new Error(payload.error_description || payload.error)
+    }
     return { status: 'pending' }
   }
   const profileResponse = await fetch('https://api.github.com/user', {
-    headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${payload.access_token}`, 'User-Agent': 'Tabletop Card Studio' },
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${payload.access_token}`,
+      'User-Agent': 'Tabletop Card Studio',
+    },
   })
-  if (!profileResponse.ok) { pendingGithubLogin = null; throw new Error('GitHub ha autorizzato l’app, ma non è stato possibile leggere il nome dell’account.') }
-  const profile = await profileResponse.json() as { id?: number; login?: string; avatar_url?: string }
+  if (!profileResponse.ok) {
+    pendingGithubLogin = null
+    throw new Error('GitHub ha autorizzato l’app, ma non è stato possibile leggere il nome dell’account.')
+  }
+  const profile = (await profileResponse.json()) as { id?: number; login?: string; avatar_url?: string }
   if (pendingGithubLogin !== pending) return { status: 'expired' }
-  if (!profile.login || !profile.id) { pendingGithubLogin = null; throw new Error('GitHub ha restituito un profilo incompleto.') }
+  if (!profile.login || !profile.id) {
+    pendingGithubLogin = null
+    throw new Error('GitHub ha restituito un profilo incompleto.')
+  }
   await saveGithubCredential({
     accessToken: payload.access_token,
     accessTokenExpiresAt: payload.expires_in ? Date.now() + payload.expires_in * 1000 : Number.MAX_SAFE_INTEGER,
     refreshToken: payload.refresh_token ?? '',
-    refreshTokenExpiresAt: payload.refresh_token_expires_in ? Date.now() + payload.refresh_token_expires_in * 1000 : Number.MAX_SAFE_INTEGER,
+    refreshTokenExpiresAt: payload.refresh_token_expires_in
+      ? Date.now() + payload.refresh_token_expires_in * 1000
+      : Number.MAX_SAFE_INTEGER,
     userId: profile.id,
     login: profile.login,
     avatarUrl: profile.avatar_url ?? '',
@@ -1639,26 +2398,42 @@ async function getFreshGithubCredential(): Promise<StoredGitHubCredential | null
   }
   const response = await fetch('https://github.com/login/oauth/access_token', {
     method: 'POST',
-    headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Tabletop Card Studio' },
-    body: new URLSearchParams({ client_id: GITHUB_APP_CLIENT_ID.trim(), grant_type: 'refresh_token', refresh_token: credential.refreshToken }),
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'User-Agent': 'Tabletop Card Studio',
+    },
+    body: new URLSearchParams({
+      client_id: GITHUB_APP_CLIENT_ID.trim(),
+      grant_type: 'refresh_token',
+      refresh_token: credential.refreshToken,
+    }),
   })
-  const payload = await response.json() as GitHubOAuthResponse
+  const payload = (await response.json()) as GitHubOAuthResponse
   if (!response.ok || !payload.access_token) {
-    if (payload.error === 'bad_refresh_token' || payload.error === 'invalid_grant') await fs.rm(githubCredentialPath(), { force: true })
-    throw new Error(payload.error_description || (payload.error ? `GitHub: ${payload.error}` : 'Non riesco a rinnovare la sessione GitHub. Accedi di nuovo.'))
+    if (payload.error === 'bad_refresh_token' || payload.error === 'invalid_grant')
+      await fs.rm(githubCredentialPath(), { force: true })
+    throw new Error(
+      payload.error_description ||
+        (payload.error ? `GitHub: ${payload.error}` : 'Non riesco a rinnovare la sessione GitHub. Accedi di nuovo.'),
+    )
   }
   const refreshed: StoredGitHubCredential = {
     ...credential,
     accessToken: payload.access_token,
     accessTokenExpiresAt: payload.expires_in ? Date.now() + payload.expires_in * 1000 : Number.MAX_SAFE_INTEGER,
     refreshToken: payload.refresh_token ?? credential.refreshToken,
-    refreshTokenExpiresAt: payload.refresh_token_expires_in ? Date.now() + payload.refresh_token_expires_in * 1000 : credential.refreshTokenExpiresAt,
+    refreshTokenExpiresAt: payload.refresh_token_expires_in
+      ? Date.now() + payload.refresh_token_expires_in * 1000
+      : credential.refreshTokenExpiresAt,
   }
   await saveGithubCredential(refreshed)
   return refreshed
 }
 
-async function cancelGithubLogin() { pendingGithubLogin = null }
+async function cancelGithubLogin() {
+  pendingGithubLogin = null
+}
 
 async function logoutGithub() {
   pendingGithubLogin = null
@@ -1667,42 +2442,83 @@ async function logoutGithub() {
 }
 
 async function openGitHubAppInstall() {
-  if (!/^[a-z\d-]+$/i.test(GITHUB_APP_SLUG)) throw new Error('Lo slug della GitHub App non è configurato correttamente.')
+  if (!/^[a-z\d-]+$/i.test(GITHUB_APP_SLUG))
+    throw new Error('Lo slug della GitHub App non è configurato correttamente.')
   await shell.openExternal(`https://github.com/apps/${GITHUB_APP_SLUG}/installations/new`)
 }
 
 async function openGitHubRepository(url: string) {
   let parsed: URL
-  try { parsed = new URL(url) } catch { throw new Error('Indirizzo repository GitHub non valido.') }
-  if (parsed.protocol !== 'https:' || parsed.hostname !== 'github.com' || parsed.port || parsed.username || parsed.password || !/^\/[\w.-]+\/[\w.-]+\/?$/.test(parsed.pathname)) {
+  try {
+    parsed = new URL(url)
+  } catch {
+    throw new Error('Indirizzo repository GitHub non valido.')
+  }
+  if (
+    parsed.protocol !== 'https:' ||
+    parsed.hostname !== 'github.com' ||
+    parsed.port ||
+    parsed.username ||
+    parsed.password ||
+    !/^\/[\w.-]+\/[\w.-]+\/?$/.test(parsed.pathname)
+  ) {
     throw new Error('Indirizzo repository GitHub non valido.')
   }
   await shell.openExternal(parsed.toString())
 }
 
-async function createGitHubRepository(name: string, isPrivate: boolean): Promise<import('../src/types').GitHubRepositoryResult> {
+async function createGitHubRepository(
+  name: string,
+  isPrivate: boolean,
+): Promise<import('../src/types').GitHubRepositoryResult> {
   if (!activeProject) throw new Error('Apri un progetto prima di creare un repository GitHub.')
   const repoName = String(name ?? '').trim()
-  if (!/^[A-Za-z0-9._-]{1,100}$/.test(repoName) || repoName === '.' || repoName === '..') throw new Error('Usa un nome repository di massimo 100 caratteri: lettere, numeri, punti, trattini o underscore.')
+  if (!/^[A-Za-z0-9._-]{1,100}$/.test(repoName) || repoName === '.' || repoName === '..')
+    throw new Error('Usa un nome repository di massimo 100 caratteri: lettere, numeri, punti, trattini o underscore.')
   if (typeof isPrivate !== 'boolean') throw new Error('Scegli se il repository deve essere privato.')
   const credential = await getFreshGithubCredential()
   if (!credential) throw new Error('Accedi a GitHub dall’app prima di creare il repository.')
 
   let localRepoExists = false
-  try { await runGit(['rev-parse', '--is-inside-work-tree']); localRepoExists = true } catch { /* repository locale non inizializzato */ }
+  try {
+    await runGit(['rev-parse', '--is-inside-work-tree'])
+    localRepoExists = true
+  } catch {
+    /* repository locale non inizializzato */
+  }
   if (localRepoExists) {
-    const existingRemote = await runGit(['config', '--get', 'remote.origin.url']).catch(() => ({ stdout: '', stderr: '' }))
-    if (existingRemote.stdout) throw new Error('Questo progetto ha già un remote origin. Rimuovilo o usa la funzione di collegamento esistente.')
+    const existingRemote = await runGit(['config', '--get', 'remote.origin.url']).catch(() => ({
+      stdout: '',
+      stderr: '',
+    }))
+    if (existingRemote.stdout)
+      throw new Error('Questo progetto ha già un remote origin. Rimuovilo o usa la funzione di collegamento esistente.')
   }
 
   const response = await fetch('https://api.github.com/user/repos', {
     method: 'POST',
-    headers: { Accept: 'application/vnd.github+json', Authorization: `Bearer ${credential.accessToken}`, 'Content-Type': 'application/json', 'User-Agent': 'Tabletop Card Studio' },
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${credential.accessToken}`,
+      'Content-Type': 'application/json',
+      'User-Agent': 'Tabletop Card Studio',
+    },
     body: JSON.stringify({ name: repoName, private: isPrivate, auto_init: false }),
   })
-  const payload = await response.json() as { name?: string; html_url?: string; clone_url?: string; private?: boolean; message?: string; errors?: Array<{ message?: string }> }
+  const payload = (await response.json()) as {
+    name?: string
+    html_url?: string
+    clone_url?: string
+    private?: boolean
+    message?: string
+    errors?: Array<{ message?: string }>
+  }
   if (!response.ok || !payload.clone_url || !payload.html_url || !payload.name) {
-    const detail = payload.errors?.map((error) => error.message).filter(Boolean).join(' ') || payload.message
+    const detail =
+      payload.errors
+        ?.map((error) => error.message)
+        .filter(Boolean)
+        .join(' ') || payload.message
     throw new Error(detail || 'GitHub non è riuscito a creare il repository.')
   }
 
@@ -1710,12 +2526,21 @@ async function createGitHubRepository(name: string, isPrivate: boolean): Promise
   let warning = ''
   try {
     if (!localRepoExists) {
-      try { await runGit(['init', '--initial-branch=main']) }
-      catch { await runGit(['init']); await runGit(['symbolic-ref', 'HEAD', 'refs/heads/main']) }
+      try {
+        await runGit(['init', '--initial-branch=main'])
+      } catch {
+        await runGit(['init'])
+        await runGit(['symbolic-ref', 'HEAD', 'refs/heads/main'])
+      }
     }
     await runGit(['remote', 'add', 'origin', payload.clone_url])
     let hasCommit = false
-    try { await runGit(['rev-parse', '--verify', 'HEAD']); hasCommit = true } catch { /* primo commit da creare */ }
+    try {
+      await runGit(['rev-parse', '--verify', 'HEAD'])
+      hasCommit = true
+    } catch {
+      /* primo commit da creare */
+    }
     let branch = (await runGit(['branch', '--show-current'])).stdout
     if (!branch) {
       if (hasCommit) await runGit(['switch', '-c', 'main'])
@@ -1723,8 +2548,21 @@ async function createGitHubRepository(name: string, isPrivate: boolean): Promise
       branch = 'main'
     }
     const ensureLocalGitAuthor = async () => {
-      try { await runGit(['config', '--get', 'user.name']) } catch { await runGit(['config', '--local', 'user.name', credential.login]) }
-      try { await runGit(['config', '--get', 'user.email']) } catch { await runGit(['config', '--local', 'user.email', `${credential.userId}+${credential.login}@users.noreply.github.com`]) }
+      try {
+        await runGit(['config', '--get', 'user.name'])
+      } catch {
+        await runGit(['config', '--local', 'user.name', credential.login])
+      }
+      try {
+        await runGit(['config', '--get', 'user.email'])
+      } catch {
+        await runGit([
+          'config',
+          '--local',
+          'user.email',
+          `${credential.userId}+${credential.login}@users.noreply.github.com`,
+        ])
+      }
     }
     if (!hasCommit) {
       const changes = await runGit(['status', '--porcelain=v1'])
@@ -1742,66 +2580,110 @@ async function createGitHubRepository(name: string, isPrivate: boolean): Promise
         await runGit(['commit', '-m', 'Aggiornamento progetto da Tabletop Card Studio'])
       }
     }
-    if (hasCommit) { await runGithubAuthenticatedGit(['push', '--set-upstream', 'origin', branch]); pushed = true }
-    else warning = 'Repository creato e collegato, ma la cartella non contiene file da caricare.'
+    if (hasCommit) {
+      await runGithubAuthenticatedGit(['push', '--set-upstream', 'origin', branch])
+      pushed = true
+    } else warning = 'Repository creato e collegato, ma la cartella non contiene file da caricare.'
   } catch (error) {
     warning = error instanceof Error ? error.message : String(error)
   }
-  return { name: payload.name, htmlUrl: payload.html_url, isPrivate: payload.private ?? isPrivate, pushed, warning, status: await readGitStatus() }
+  return {
+    name: payload.name,
+    htmlUrl: payload.html_url,
+    isPrivate: payload.private ?? isPrivate,
+    pushed,
+    warning,
+    status: await readGitStatus(),
+  }
 }
 
 async function cloneGitHubProjectRepository(fullName: string): Promise<ProjectSnapshot | null> {
-  if (typeof fullName !== 'string' || !/^[\w.-]+\/[\w.-]+$/.test(fullName)) throw new Error('Repository GitHub non valido.')
+  if (typeof fullName !== 'string' || !/^[\w.-]+\/[\w.-]+$/.test(fullName))
+    throw new Error('Repository GitHub non valido.')
   const credential = await getFreshGithubCredential()
   if (!credential) throw new Error('Accedi a GitHub dall’app prima di scaricare un progetto.')
   const repositories = await githubInstalledRepositories(credential.accessToken)
   const repository = repositories.find((item) => item.full_name.toLocaleLowerCase() === fullName.toLocaleLowerCase())
-  if (!repository) throw new Error('La repository non è più accessibile a Card Studio. Aggiorna l’elenco e verifica l’installazione dell’app.')
+  if (!repository)
+    throw new Error(
+      'La repository non è più accessibile a Card Studio. Aggiorna l’elenco e verifica l’installazione dell’app.',
+    )
   const projectType = await githubRepositoryProjectType(repository, credential.accessToken)
-  if (!projectType) throw new Error('La repository non contiene un progetto Tabletop Creator, dati Card Studio o un foglio Excel supportato.')
+  if (!projectType)
+    throw new Error(
+      'La repository non contiene un progetto Tabletop Creator, dati Card Studio o un foglio Excel supportato.',
+    )
   const cloneUrl = new URL(repository.clone_url)
-  if (cloneUrl.protocol !== 'https:' || cloneUrl.hostname !== 'github.com' || cloneUrl.username || cloneUrl.password) throw new Error('GitHub ha restituito un indirizzo di clone non valido.')
+  if (cloneUrl.protocol !== 'https:' || cloneUrl.hostname !== 'github.com' || cloneUrl.username || cloneUrl.password)
+    throw new Error('GitHub ha restituito un indirizzo di clone non valido.')
 
-  const picked = await dialog.showOpenDialog(win!, { title: `Scegli dove scaricare ${repository.full_name}`, defaultPath: app.getPath('documents'), properties: ['openDirectory', 'createDirectory'] })
+  const picked = await dialog.showOpenDialog(win!, {
+    title: `Scegli dove scaricare ${repository.full_name}`,
+    defaultPath: app.getPath('documents'),
+    properties: ['openDirectory', 'createDirectory'],
+  })
   if (picked.canceled || !picked.filePaths[0]) return null
   const parent = path.resolve(picked.filePaths[0])
   const parentStat = await fs.stat(parent).catch(() => null)
   if (!parentStat?.isDirectory()) throw new Error('La cartella scelta non è disponibile.')
-  if (!/^[A-Za-z0-9._-]{1,100}$/.test(repository.name) || repository.name === '.' || repository.name === '..') throw new Error('Il nome della repository non è valido come cartella locale.')
+  if (!/^[A-Za-z0-9._-]{1,100}$/.test(repository.name) || repository.name === '.' || repository.name === '..')
+    throw new Error('Il nome della repository non è valido come cartella locale.')
   const destination = path.join(parent, repository.name)
-  if (existsSync(destination)) throw new Error(`Esiste già una cartella chiamata “${repository.name}” nella posizione scelta. Scegli un’altra cartella.`)
+  if (existsSync(destination))
+    throw new Error(
+      `Esiste già una cartella chiamata “${repository.name}” nella posizione scelta. Scegli un’altra cartella.`,
+    )
   const temporaryDestination = path.join(parent, `.${repository.name}.card-studio-${randomUUID()}.tmp`)
 
   const authHeader = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${credential.accessToken}`, 'utf8').toString('base64')}`
-  const config: Array<[string, string]> = [['credential.helper', ''], ['credential.interactive', 'never'], ['http.https://github.com/.extraheader', authHeader]]
+  const config: Array<[string, string]> = [
+    ['credential.helper', ''],
+    ['credential.interactive', 'never'],
+    ['http.https://github.com/.extraheader', authHeader],
+  ]
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_COUNT: String(config.length), GIT_TERMINAL_PROMPT: '0' }
-  config.forEach(([key, value], index) => { env[`GIT_CONFIG_KEY_${index}`] = key; env[`GIT_CONFIG_VALUE_${index}`] = value })
+  config.forEach(([key, value], index) => {
+    env[`GIT_CONFIG_KEY_${index}`] = key
+    env[`GIT_CONFIG_VALUE_${index}`] = value
+  })
   try {
     await runGitAt(parent, ['clone', '--quiet', '--', repository.clone_url, temporaryDestination], env, 30 * 60_000)
   } catch (error) {
     await fs.rm(temporaryDestination, { recursive: true, force: true }).catch(() => undefined)
-    throw new Error(error instanceof Error ? `Download non riuscito: ${error.message}` : 'Download della repository non riuscito.')
+    throw new Error(
+      error instanceof Error ? `Download non riuscito: ${error.message}` : 'Download della repository non riuscito.',
+    )
   }
   if (existsSync(destination)) {
     await fs.rm(temporaryDestination, { recursive: true, force: true })
-    throw new Error(`Nel frattempo è stata creata una cartella chiamata “${repository.name}”. Scegli un’altra cartella.`)
+    throw new Error(
+      `Nel frattempo è stata creata una cartella chiamata “${repository.name}”. Scegli un’altra cartella.`,
+    )
   }
-  try { await fs.rename(temporaryDestination, destination) }
-  catch (error) {
+  try {
+    await fs.rename(temporaryDestination, destination)
+  } catch (error) {
     await fs.rm(temporaryDestination, { recursive: true, force: true }).catch(() => undefined)
-    throw new Error(error instanceof Error ? `Impossibile completare il download: ${error.message}` : 'Impossibile completare il download.')
+    throw new Error(
+      error instanceof Error
+        ? `Impossibile completare il download: ${error.message}`
+        : 'Impossibile completare il download.',
+    )
   }
   return openProject(destination)
 }
 
 async function runGithubAuthenticatedGit(args: string[]) {
   const remote = (await runGit(['config', '--get', 'remote.origin.url'])).stdout
-  if (/^http:\/\//i.test(remote)) throw new Error('Per sincronizzare con GitHub, imposta il remote origin in HTTPS sicuro o SSH.')
-  if (!githubWebUrl(remote)) throw new Error('Per usare l’accesso dell’app, origin deve puntare a github.com tramite HTTPS o SSH.')
+  if (/^http:\/\//i.test(remote))
+    throw new Error('Per sincronizzare con GitHub, imposta il remote origin in HTTPS sicuro o SSH.')
+  if (!githubWebUrl(remote))
+    throw new Error('Per usare l’accesso dell’app, origin deve puntare a github.com tramite HTTPS o SSH.')
   const auth = await githubAuthStatus()
   if (!auth.authenticated) throw new Error(auth.error || 'Accedi a GitHub dall’app prima di usare Pull o Push.')
   if (auth.error) throw new Error(auth.error)
-  if (!auth.appInstalled) throw new Error('Installa Tabletop Card Studio sul tuo account GitHub e concedigli accesso a questo repository.')
+  if (!auth.appInstalled)
+    throw new Error('Installa Tabletop Card Studio sul tuo account GitHub e concedigli accesso a questo repository.')
   const credential = await getFreshGithubCredential()
   if (!credential) throw new Error('Accedi a GitHub dall’app prima di usare Pull o Push.')
   const authHeader = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${credential.accessToken}`, 'utf8').toString('base64')}`
@@ -1813,14 +2695,32 @@ async function runGithubAuthenticatedGit(args: string[]) {
     ['url.https://github.com/.insteadOf', 'ssh://git@github.com/'],
   ]
   const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_COUNT: String(config.length), GIT_TERMINAL_PROMPT: '0' }
-  config.forEach(([key, value], index) => { env[`GIT_CONFIG_KEY_${index}`] = key; env[`GIT_CONFIG_VALUE_${index}`] = value })
+  config.forEach(([key, value], index) => {
+    env[`GIT_CONFIG_KEY_${index}`] = key
+    env[`GIT_CONFIG_VALUE_${index}`] = value
+  })
   return runGit(args, env)
 }
 
 async function readGitStatus(): Promise<GitStatus> {
-  const empty: GitStatus = { isRepo: false, branch: '', remoteUrl: '', githubUrl: '', changedFiles: [], ahead: 0, behind: 0, commits: [], branches: [], error: '' }
+  const empty: GitStatus = {
+    isRepo: false,
+    branch: '',
+    remoteUrl: '',
+    githubUrl: '',
+    changedFiles: [],
+    ahead: 0,
+    behind: 0,
+    commits: [],
+    branches: [],
+    error: '',
+  }
   if (!activeProject) return empty
-  try { await runGit(['rev-parse', '--is-inside-work-tree']) } catch { return empty }
+  try {
+    await runGit(['rev-parse', '--is-inside-work-tree'])
+  } catch {
+    return empty
+  }
   try {
     const [branchResult, statusResult, remoteResult, logResult, branchesResult] = await Promise.all([
       runGit(['branch', '--show-current']).catch(() => ({ stdout: '(detached HEAD)', stderr: '' })),
@@ -1829,7 +2729,10 @@ async function readGitStatus(): Promise<GitStatus> {
       runGit(['log', '-5', '--no-merges', '--format=%h%x09%s%x09%cr']).catch(() => ({ stdout: '', stderr: '' })),
       runGit(['branch', '--format=%(refname:short)']).catch(() => ({ stdout: '', stderr: '' })),
     ])
-    const changedFiles: GitFileStatus[] = statusResult.stdout.split('\n').filter(Boolean).map((line) => ({ status: line.slice(0, 2).trim() || 'M', path: line.slice(3) }))
+    const changedFiles: GitFileStatus[] = statusResult.stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => ({ status: line.slice(0, 2).trim() || 'M', path: line.slice(3) }))
     let ahead = 0
     let behind = 0
     try {
@@ -1837,32 +2740,61 @@ async function readGitStatus(): Promise<GitStatus> {
       const [left, right] = counts.stdout.split(/\s+/).map(Number)
       ahead = left || 0
       behind = right || 0
-    } catch { /* no upstream configured yet */ }
-    const commits: GitCommitSummary[] = logResult.stdout.split('\n').filter(Boolean).map((line) => {
-      const [hash = '', subject = '', age = ''] = line.split('\t')
-      return { hash, subject, age }
-    })
+    } catch {
+      /* no upstream configured yet */
+    }
+    const commits: GitCommitSummary[] = logResult.stdout
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [hash = '', subject = '', age = ''] = line.split('\t')
+        return { hash, subject, age }
+      })
     const remoteUrl = remoteResult.stdout
-    return { isRepo: true, branch: branchResult.stdout, remoteUrl, githubUrl: githubWebUrl(remoteUrl), changedFiles, ahead, behind, commits, branches: branchesResult.stdout.split('\n').filter(Boolean), error: '' }
+    return {
+      isRepo: true,
+      branch: branchResult.stdout,
+      remoteUrl,
+      githubUrl: githubWebUrl(remoteUrl),
+      changedFiles,
+      ahead,
+      behind,
+      commits,
+      branches: branchesResult.stdout.split('\n').filter(Boolean),
+      error: '',
+    }
   } catch (error) {
     return { ...empty, isRepo: true, error: error instanceof Error ? error.message : String(error) }
   }
 }
 
 async function gitAction(action: () => Promise<void>): Promise<GitStatus> {
-  try { await action(); return await readGitStatus() }
-  catch (error) {
+  try {
+    await action()
+    return await readGitStatus()
+  } catch (error) {
     const current = await readGitStatus()
     return { ...current, error: error instanceof Error ? error.message : String(error) }
   }
 }
 
 async function createWindow() {
-  await writeDiagnostic('info', 'window.create', { appVersion: app.getVersion(), packaged: app.isPackaged, platform: process.platform })
-  const iconPath = path.join(__dirname, app.isPackaged ? '../../renderer-dist/tabletop-card-studio.png' : '../../public/tabletop-card-studio.png')
+  await writeDiagnostic('info', 'window.create', {
+    appVersion: app.getVersion(),
+    packaged: app.isPackaged,
+    platform: process.platform,
+  })
+  const iconPath = path.join(
+    __dirname,
+    app.isPackaged ? '../../renderer-dist/tabletop-card-studio.png' : '../../public/tabletop-card-studio.png',
+  )
   win = new BrowserWindow({
-    width: 1440, height: 940, minWidth: 1080, minHeight: 700,
-    backgroundColor: '#f4f0e8', title: 'Tabletop Card Studio',
+    width: 1440,
+    height: 940,
+    minWidth: 1080,
+    minHeight: 700,
+    backgroundColor: '#f4f0e8',
+    title: 'Tabletop Card Studio',
     icon: iconPath,
     webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false },
   })
@@ -1871,23 +2803,42 @@ async function createWindow() {
 }
 
 app.whenReady().then(() => {
-  void writeDiagnostic('info', 'app.ready', { appVersion: app.getVersion(), platform: process.platform, arch: process.arch })
-  ipcMain.handle('diagnostics:open', openDiagnosticLog)
-  ipcMain.handle('diagnostics:renderer', async (_event, event: string, details?: Record<string, string | number | boolean | undefined>) => {
-    const safeDetails = Object.fromEntries(Object.entries(details ?? {}).filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value)).map(([key, value]) => [key.slice(0, 80), typeof value === 'string' ? value.slice(0, 2000) : value]))
-    await writeDiagnostic('error', `renderer.${String(event).slice(0, 100)}`, safeDetails)
+  void writeDiagnostic('info', 'app.ready', {
+    appVersion: app.getVersion(),
+    platform: process.platform,
+    arch: process.arch,
   })
+  ipcMain.handle('diagnostics:open', openDiagnosticLog)
+  ipcMain.handle(
+    'diagnostics:renderer',
+    async (_event, event: string, details?: Record<string, string | number | boolean | undefined>) => {
+      const safeDetails = Object.fromEntries(
+        Object.entries(details ?? {})
+          .filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value))
+          .map(([key, value]) => [key.slice(0, 80), typeof value === 'string' ? value.slice(0, 2000) : value]),
+      )
+      await writeDiagnostic('error', `renderer.${String(event).slice(0, 100)}`, safeDetails)
+    },
+  )
   ipcMain.handle('project:open', async () => {
-    const result = await dialog.showOpenDialog(win!, { title: 'Aggiungi cartella progetto', properties: ['openDirectory'] })
+    const result = await dialog.showOpenDialog(win!, {
+      title: 'Aggiungi cartella progetto',
+      properties: ['openDirectory'],
+    })
     return result.canceled ? null : openProject(result.filePaths[0])
   })
-  ipcMain.handle('project:open-path', async (_event, folder: string) => existsSync(folder) ? openProject(folder) : null)
+  ipcMain.handle('project:open-path', async (_event, folder: string) =>
+    existsSync(folder) ? openProject(folder) : null,
+  )
   ipcMain.handle('project:recent', async () => null)
   ipcMain.handle('projects:list', listProjects)
   ipcMain.handle('blueprints:reload', async () => {
     if (!activeProject) throw new Error('Apri prima un progetto Tabletop Creator.')
     blueprints = await loadBlueprints()
-    await writeDiagnostic('info', 'blueprints.reloaded', { blueprintCount: blueprints.length, blueprintNames: blueprints.map((blueprint) => blueprint.name) })
+    await writeDiagnostic('info', 'blueprints.reloaded', {
+      blueprintCount: blueprints.length,
+      blueprintNames: blueprints.map((blueprint) => blueprint.name),
+    })
     return snapshot()
   })
   ipcMain.handle('git:status', readGitStatus)
@@ -1896,72 +2847,129 @@ app.whenReady().then(() => {
   ipcMain.handle('github:login-poll', () => pollGithubLogin())
   ipcMain.handle('github:login-cancel', () => cancelGithubLogin())
   ipcMain.handle('github:logout', () => logoutGithub())
-  ipcMain.handle('github:repo-create', (_event, name: string, isPrivate: boolean) => createGitHubRepository(name, isPrivate))
+  ipcMain.handle('github:repo-create', (_event, name: string, isPrivate: boolean) =>
+    createGitHubRepository(name, isPrivate),
+  )
   ipcMain.handle('github:project-repos-list', listGitHubProjectRepositories)
   ipcMain.handle('github:project-repo-clone', (_event, fullName: string) => cloneGitHubProjectRepository(fullName))
   ipcMain.handle('github:login-open', () => shell.openExternal('https://github.com/login/device'))
   ipcMain.handle('github:install-open', openGitHubAppInstall)
   ipcMain.handle('github:repository-open', (_event, url: string) => openGitHubRepository(url))
-  ipcMain.handle('git:init', () => gitAction(async () => { await runGit(['init']) }))
-  ipcMain.handle('git:connect', (_event, remoteUrl: string) => gitAction(async () => {
-    const trimmed = remoteUrl.trim()
-    const valid = /^(https:\/\/github\.com\/[\w.-]+\/[\w.-]+(?:\.git)?|git@github\.com:[\w.-]+\/[\w.-]+(?:\.git)?)$/i.test(trimmed)
-    if (!valid) throw new Error('Inserisci un URL GitHub valido, in formato HTTPS o SSH.')
-    try { await runGit(['rev-parse', '--is-inside-work-tree']) } catch { await runGit(['init']) }
-    try { await runGit(['remote', 'get-url', 'origin']); await runGit(['remote', 'set-url', 'origin', trimmed]) }
-    catch { await runGit(['remote', 'add', 'origin', trimmed]) }
-  }))
-  ipcMain.handle('git:commit', (_event, message: string) => gitAction(async () => {
-    if (!message.trim()) throw new Error('Scrivi un messaggio per il commit.')
-    await runGit(['add', '-A'])
-    await runGit(['commit', '-m', message.trim()])
-  }))
-  ipcMain.handle('git:pull', () => gitAction(async () => { await runGithubAuthenticatedGit(['pull', '--ff-only']) }))
-  ipcMain.handle('git:push', () => gitAction(async () => {
-    const branch = (await runGit(['branch', '--show-current'])).stdout
-    if (!branch) throw new Error('Seleziona un branch prima di inviare le modifiche.')
-    await runGithubAuthenticatedGit(['push', '--set-upstream', 'origin', branch])
-  }))
+  ipcMain.handle('git:init', () =>
+    gitAction(async () => {
+      await runGit(['init'])
+    }),
+  )
+  ipcMain.handle('git:connect', (_event, remoteUrl: string) =>
+    gitAction(async () => {
+      const trimmed = remoteUrl.trim()
+      const valid =
+        /^(https:\/\/github\.com\/[\w.-]+\/[\w.-]+(?:\.git)?|git@github\.com:[\w.-]+\/[\w.-]+(?:\.git)?)$/i.test(
+          trimmed,
+        )
+      if (!valid) throw new Error('Inserisci un URL GitHub valido, in formato HTTPS o SSH.')
+      try {
+        await runGit(['rev-parse', '--is-inside-work-tree'])
+      } catch {
+        await runGit(['init'])
+      }
+      try {
+        await runGit(['remote', 'get-url', 'origin'])
+        await runGit(['remote', 'set-url', 'origin', trimmed])
+      } catch {
+        await runGit(['remote', 'add', 'origin', trimmed])
+      }
+    }),
+  )
+  ipcMain.handle('git:commit', (_event, message: string) =>
+    gitAction(async () => {
+      if (!message.trim()) throw new Error('Scrivi un messaggio per il commit.')
+      await runGit(['add', '-A'])
+      await runGit(['commit', '-m', message.trim()])
+    }),
+  )
+  ipcMain.handle('git:pull', () =>
+    gitAction(async () => {
+      await runGithubAuthenticatedGit(['pull', '--ff-only'])
+    }),
+  )
+  ipcMain.handle('git:push', () =>
+    gitAction(async () => {
+      const branch = (await runGit(['branch', '--show-current'])).stdout
+      if (!branch) throw new Error('Seleziona un branch prima di inviare le modifiche.')
+      await runGithubAuthenticatedGit(['push', '--set-upstream', 'origin', branch])
+    }),
+  )
   const assertCleanGitTree = async () => {
     const dirty = await runGit(['status', '--porcelain=v1'])
     if (dirty.stdout) throw new Error('Registra o metti da parte le modifiche locali prima di cambiare branch.')
   }
-  ipcMain.handle('git:branch-switch', (_event, name: string) => gitAction(async () => {
-    if (!name || name.includes('..') || name.startsWith('-')) throw new Error('Il nome del branch non è valido.')
-    await assertCleanGitTree()
-    await runGit(['switch', name])
-  }))
-  ipcMain.handle('git:branch-create', (_event, name: string, commit?: string) => gitAction(async () => {
-    const trimmed = String(name ?? '').trim()
-    if (!trimmed || trimmed.startsWith('-')) throw new Error('Inserisci un nome branch valido.')
-    await runGit(['check-ref-format', '--branch', trimmed])
-    await assertCleanGitTree()
-    if (commit) {
-      if (!/^[a-f\d]{7,40}$/i.test(commit)) throw new Error('Il commit selezionato non è valido.')
-      await runGit(['cat-file', '-e', `${commit}^{commit}`])
-      await runGit(['switch', '-c', trimmed, commit])
-    } else await runGit(['switch', '-c', trimmed])
-  }))
-  ipcMain.handle('git:branch-delete', (_event, name: string) => gitAction(async () => {
-    if (!name || name.includes('..') || name.startsWith('-')) throw new Error('Il nome del branch non è valido.')
-    if ((await runGit(['branch', '--show-current'])).stdout === name) throw new Error('Non puoi eliminare il branch attivo.')
-    await runGit(['branch', '-d', name])
-  }))
+  ipcMain.handle('git:branch-switch', (_event, name: string) =>
+    gitAction(async () => {
+      if (!name || name.includes('..') || name.startsWith('-')) throw new Error('Il nome del branch non è valido.')
+      await assertCleanGitTree()
+      await runGit(['switch', name])
+    }),
+  )
+  ipcMain.handle('git:branch-create', (_event, name: string, commit?: string) =>
+    gitAction(async () => {
+      const trimmed = String(name ?? '').trim()
+      if (!trimmed || trimmed.startsWith('-')) throw new Error('Inserisci un nome branch valido.')
+      await runGit(['check-ref-format', '--branch', trimmed])
+      await assertCleanGitTree()
+      if (commit) {
+        if (!/^[a-f\d]{7,40}$/i.test(commit)) throw new Error('Il commit selezionato non è valido.')
+        await runGit(['cat-file', '-e', `${commit}^{commit}`])
+        await runGit(['switch', '-c', trimmed, commit])
+      } else await runGit(['switch', '-c', trimmed])
+    }),
+  )
+  ipcMain.handle('git:branch-delete', (_event, name: string) =>
+    gitAction(async () => {
+      if (!name || name.includes('..') || name.startsWith('-')) throw new Error('Il nome del branch non è valido.')
+      if ((await runGit(['branch', '--show-current'])).stdout === name)
+        throw new Error('Non puoi eliminare il branch attivo.')
+      await runGit(['branch', '-d', name])
+    }),
+  )
   ipcMain.handle('git:commit-files', async (_event, hash: string) => {
     if (!/^[a-f\d]{7,40}$/i.test(hash)) throw new Error('Il riferimento del commit non è valido.')
     await runGit(['cat-file', '-e', `${hash}^{commit}`])
     return (await runGit(['ls-tree', '-r', '--name-only', hash])).stdout.split('\n').filter(Boolean)
   })
   ipcMain.handle('git:commit-file', async (_event, hash: string, file: string): Promise<GitCommitFile> => {
-    if (!/^[a-f\d]{7,40}$/i.test(hash) || !file || file.startsWith('/') || file.split(/[\\/]/).includes('..')) throw new Error('Commit o percorso file non valido.')
+    if (!/^[a-f\d]{7,40}$/i.test(hash) || !file || file.startsWith('/') || file.split(/[\\/]/).includes('..'))
+      throw new Error('Commit o percorso file non valido.')
     const result = await runGit(['show', `${hash}:${file}`])
     if (result.stdout.includes('\u0000')) return { path: file, binary: true }
-    if (result.stdout.length > 500_000) return { path: file, binary: false, content: `${result.stdout.slice(0, 500_000)}\n\n…contenuto troncato (oltre 500 KB)…` }
+    if (result.stdout.length > 500_000)
+      return {
+        path: file,
+        binary: false,
+        content: `${result.stdout.slice(0, 500_000)}\n\n…contenuto troncato (oltre 500 KB)…`,
+      }
     return { path: file, binary: false, content: result.stdout }
   })
   const markdownPath = (file: string) => {
-    const blocked = new Set(['.git', 'node_modules', 'dist', 'renderer-dist', '.tabletop-card-studio', 'build', 'coverage'])
-    if (!activeProject || typeof file !== 'string' || !file.toLocaleLowerCase().endsWith('.md') || path.isAbsolute(file) || file.split(/[\\/]/).some((part) => !part || part === '.' || part === '..' || blocked.has(part.toLocaleLowerCase()))) throw new Error('Percorso Markdown non valido.')
+    const blocked = new Set([
+      '.git',
+      'node_modules',
+      'dist',
+      'renderer-dist',
+      '.tabletop-card-studio',
+      'build',
+      'coverage',
+    ])
+    if (
+      !activeProject ||
+      typeof file !== 'string' ||
+      !file.toLocaleLowerCase().endsWith('.md') ||
+      path.isAbsolute(file) ||
+      file
+        .split(/[\\/]/)
+        .some((part) => !part || part === '.' || part === '..' || blocked.has(part.toLocaleLowerCase()))
+    )
+      throw new Error('Percorso Markdown non valido.')
     const root = path.resolve(activeProject)
     const target = path.resolve(root, file)
     if (!target.startsWith(`${root}${path.sep}`)) throw new Error('Il file deve restare all’interno del progetto.')
@@ -1970,15 +2978,29 @@ app.whenReady().then(() => {
   ipcMain.handle('markdown:list', async () => {
     if (!activeProject) return []
     const found: string[] = []
-    const ignored = new Set(['.git', 'node_modules', 'dist', 'renderer-dist', '.tabletop-card-studio', 'build', 'coverage'])
+    const ignored = new Set([
+      '.git',
+      'node_modules',
+      'dist',
+      'renderer-dist',
+      '.tabletop-card-studio',
+      'build',
+      'coverage',
+    ])
     const visit = async (directory: string): Promise<void> => {
       let entries
-      try { entries = await fs.readdir(directory, { withFileTypes: true }) } catch { return }
+      try {
+        entries = await fs.readdir(directory, { withFileTypes: true })
+      } catch {
+        return
+      }
       for (const entry of entries) {
         if (entry.isSymbolicLink()) continue
         const absolute = path.join(directory, entry.name)
-        if (entry.isDirectory()) { if (!ignored.has(entry.name)) await visit(absolute) }
-        else if (entry.isFile() && entry.name.toLocaleLowerCase().endsWith('.md')) found.push(path.relative(activeProject, absolute).split(path.sep).join('/'))
+        if (entry.isDirectory()) {
+          if (!ignored.has(entry.name)) await visit(absolute)
+        } else if (entry.isFile() && entry.name.toLocaleLowerCase().endsWith('.md'))
+          found.push(path.relative(activeProject, absolute).split(path.sep).join('/'))
       }
     }
     await visit(activeProject)
@@ -1987,14 +3009,16 @@ app.whenReady().then(() => {
   ipcMain.handle('markdown:read', async (_event, file: string) => {
     const target = markdownPath(file)
     const stat = await fs.lstat(target)
-    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 2_000_000) throw new Error('Il file Markdown non è valido o supera 2 MB.')
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 2_000_000)
+      throw new Error('Il file Markdown non è valido o supera 2 MB.')
     return { path: file, content: await fs.readFile(target, 'utf8') }
   })
   ipcMain.handle('markdown:save', async (_event, file: string, content: string) => {
     const target = markdownPath(file)
     const stat = await fs.lstat(target)
     if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('È possibile modificare solo file Markdown esistenti.')
-    if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > 2_000_000) throw new Error('Il contenuto supera il limite di 2 MB.')
+    if (typeof content !== 'string' || Buffer.byteLength(content, 'utf8') > 2_000_000)
+      throw new Error('Il contenuto supera il limite di 2 MB.')
     await writeFileAtomically(target, content)
     return { path: file, content }
   })
@@ -2041,14 +3065,25 @@ app.whenReady().then(() => {
     if (!current) return
     if (current.blueprintName) {
       const columns = replaceBlueprintFields(current.blueprintName, nextColumns)
-      for (const set of sets.filter((item) => item.blueprintName === current.blueprintName)) set.cards = ensureGeneratedIdValues(set.cards.map((card) => resolveConditionalValues(columns, card)), columns, randomUUID)
+      for (const set of sets.filter((item) => item.blueprintName === current.blueprintName))
+        set.cards = ensureGeneratedIdValues(
+          set.cards.map((card) => resolveConditionalValues(columns, card)),
+          columns,
+          randomUUID,
+        )
     } else {
       current.columns = nextColumns
-      current.cards = ensureGeneratedIdValues(current.cards.map((card) => resolveConditionalValues(nextColumns, card)), nextColumns, randomUUID)
+      current.cards = ensureGeneratedIdValues(
+        current.cards.map((card) => resolveConditionalValues(nextColumns, card)),
+        nextColumns,
+        randomUUID,
+      )
     }
     await persistSets()
   })
-  registerLoggedHandler('blueprints:assignments-save', async (assignments: Record<string, string>) => saveBlueprintAssignments(assignments))
+  registerLoggedHandler('blueprints:assignments-save', async (assignments: Record<string, string>) =>
+    saveBlueprintAssignments(assignments),
+  )
   ipcMain.handle('variables:save', async (_event, nextVariables: ProjectVariable[]) => {
     if (!activeProject) throw new Error('Apri prima un progetto Tabletop Creator.')
     const filePath = path.join(activeProject, 'data', 'variables.json')
@@ -2057,30 +3092,52 @@ app.whenReady().then(() => {
     try {
       const existing = JSON.parse(await fs.readFile(filePath, 'utf8'))
       if (existing && typeof existing === 'object' && !Array.isArray(existing)) document = existing
-    } catch { /* create the variables file when it does not exist yet */ }
-    document.variables = nextVariables.map(({ studioTags: _studioTags, studioType: _studioType, ...variable }) => variable)
+    } catch {
+      /* create the variables file when it does not exist yet */
+    }
+    document.variables = nextVariables.map(
+      ({ studioTags: _studioTags, studioType: _studioType, ...variable }) => variable,
+    )
     await fs.writeFile(filePath, JSON.stringify(document, null, 2))
-    const tagMap = Object.fromEntries(nextVariables
-      .filter((variable) => variable.studioTags?.length)
-      .map((variable) => [variable.code.toLocaleLowerCase(), [...new Set(variable.studioTags!.map((tag) => tag.trim()).filter(Boolean))]]))
+    const tagMap = Object.fromEntries(
+      nextVariables
+        .filter((variable) => variable.studioTags?.length)
+        .map((variable) => [
+          variable.code.toLocaleLowerCase(),
+          [...new Set(variable.studioTags!.map((tag) => tag.trim()).filter(Boolean))],
+        ]),
+    )
     const metadataPath = path.join(activeProject, dataDirName, 'variable-tags.json')
     await fs.mkdir(path.dirname(metadataPath), { recursive: true })
     await fs.writeFile(metadataPath, JSON.stringify({ variables: tagMap }, null, 2))
-    const typeMap = Object.fromEntries(nextVariables
-      .filter((variable) => variable.studioType === 'color' || variable.studioType === 'icon')
-      .map((variable) => [variable.code.toLocaleLowerCase(), variable.studioType]))
+    const typeMap = Object.fromEntries(
+      nextVariables
+        .filter((variable) => variable.studioType === 'color' || variable.studioType === 'icon')
+        .map((variable) => [variable.code.toLocaleLowerCase(), variable.studioType]),
+    )
     const typeMetadataPath = path.join(activeProject, dataDirName, 'variable-types.json')
     await fs.writeFile(typeMetadataPath, JSON.stringify({ variables: typeMap }, null, 2))
     variables = nextVariables.map((variable) => ({ ...variable, studioType: variable.studioType ?? 'text' }))
     return snapshot()
   })
-  registerLoggedHandler('sets:select', async (id: string) => { if (sets.some((set) => set.id === id)) activeSetId = id; return snapshot() })
-  registerLoggedHandler('sets:link-native', async (setId: string, file: string, index: number) => connectNativeSet(setId, file, index))
-  registerLoggedHandler('sets:create-native', async (setId: string, name: string, blueprintName: string) => createNativeSet(setId, name, blueprintName))
+  registerLoggedHandler('sets:select', async (id: string) => {
+    if (sets.some((set) => set.id === id)) activeSetId = id
+    return snapshot()
+  })
+  registerLoggedHandler('sets:link-native', async (setId: string, file: string, index: number) =>
+    connectNativeSet(setId, file, index),
+  )
+  registerLoggedHandler('sets:create-native', async (setId: string, name: string, blueprintName: string) =>
+    createNativeSet(setId, name, blueprintName),
+  )
   registerLoggedHandler('sets:unlink-native', async (setId: string) => disconnectNativeSet(setId))
-  registerLoggedHandler('sets:resolve-name-conflict', async (setId: string, resolution: 'card-studio' | 'tabletop') => resolveNativeSetNameConflict(setId, resolution))
+  registerLoggedHandler('sets:resolve-name-conflict', async (setId: string, resolution: 'card-studio' | 'tabletop') =>
+    resolveNativeSetNameConflict(setId, resolution),
+  )
   registerLoggedHandler('sets:duplicate', async (setId: string) => duplicateProjectSet(setId))
-  registerLoggedHandler('cards:move', async (cardId: string, targetSetId: string, draft?: Card) => moveCardBetweenSets(cardId, targetSetId, draft))
+  registerLoggedHandler('cards:move', async (cardId: string, targetSetId: string, draft?: Card) =>
+    moveCardBetweenSets(cardId, targetSetId, draft),
+  )
   registerLoggedHandler('sets:rename', async (id: string, name: string) => {
     const target = sets.find((set) => set.id === id)
     const trimmedName = name.trim()
@@ -2101,13 +3158,21 @@ app.whenReady().then(() => {
     return snapshot()
   })
   registerLoggedHandler('sets:create', async (name: string) => {
-    const set: ProjectSet = { id: `set_${crypto.randomUUID()}`, name: name.trim() || 'Nuovo set', cards: [], columns: structuredClone(defaultColumns) }
+    const set: ProjectSet = {
+      id: `set_${crypto.randomUUID()}`,
+      name: name.trim() || 'Nuovo set',
+      cards: [],
+      columns: structuredClone(defaultColumns),
+    }
     sets.push(set)
     activeSetId = set.id
     await persistSets(false)
     return snapshot()
   })
-  ipcMain.handle('workbooks:scan', async () => { workbooks = await scanWorkbooks(); return workbooks })
+  ipcMain.handle('workbooks:scan', async () => {
+    workbooks = await scanWorkbooks()
+    return workbooks
+  })
   ipcMain.handle('workbooks:import', async (_event, plans: ImportPlan[]) => {
     const imported: ProjectSet[] = []
     for (const plan of plans) {
@@ -2121,10 +3186,26 @@ app.whenReady().then(() => {
     workbooks = await scanWorkbooks()
     return snapshot()
   })
-  ipcMain.handle('workbooks:merge-preview', async (_event, file: string, setId: string, matchFieldId?: string, fieldIds?: string[], restoreFieldIds?: string[]) => previewWorkbookMerge(file, setId, matchFieldId, fieldIds, restoreFieldIds))
-  ipcMain.handle('workbooks:merge-apply', async (_event, token: string, resolutions: Record<string, 'excel' | 'set'>) => applyWorkbookMerge(token, resolutions))
+  ipcMain.handle(
+    'workbooks:merge-preview',
+    async (
+      _event,
+      file: string,
+      setId: string,
+      matchFieldId?: string,
+      fieldIds?: string[],
+      restoreFieldIds?: string[],
+    ) => previewWorkbookMerge(file, setId, matchFieldId, fieldIds, restoreFieldIds),
+  )
+  ipcMain.handle('workbooks:merge-apply', async (_event, token: string, resolutions: Record<string, 'excel' | 'set'>) =>
+    applyWorkbookMerge(token, resolutions),
+  )
   ipcMain.handle('assets:import', async () => {
-    const result = await dialog.showOpenDialog(win!, { title: 'Aggiungi asset al progetto', properties: ['openFile', 'multiSelections'], filters: [{ name: 'Immagini', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'avif'] }] })
+    const result = await dialog.showOpenDialog(win!, {
+      title: 'Aggiungi asset al progetto',
+      properties: ['openFile', 'multiSelections'],
+      filters: [{ name: 'Immagini', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'svg', 'avif'] }],
+    })
     if (!result.canceled) {
       const targetDir = path.join(activeProject, 'assets', 'images', 'card-studio')
       await fs.mkdir(targetDir, { recursive: true })
@@ -2141,14 +3222,24 @@ app.whenReady().then(() => {
     return assets
   })
   ipcMain.handle('icons:resolve', (_event, reference: string) => resolveProjectIcon(reference))
-  ipcMain.handle('icons:search', (_event, query: string, library: 'all' | 'tabletop' | 'project') => searchAvailableIcons(query, library))
+  ipcMain.handle('icons:search', (_event, query: string, library: 'all' | 'tabletop' | 'project') =>
+    searchAvailableIcons(query, library),
+  )
   ipcMain.handle('project:export', async (_event, cardIds?: string[]) => {
     const current = activeSet()
     if (!activeProject || !current) return null
-    const cardsToExport = cardIds === undefined
-      ? current.cards
-      : cardIds.map((id) => current.cards.find((card) => card.id === id)).filter((card): card is Card => Boolean(card))
-    const setSlug = current.name.trim().toLocaleLowerCase().replace(/[^a-z0-9-_]+/gi, '-').replace(/^-|-$/g, '') || 'set'
+    const cardsToExport =
+      cardIds === undefined
+        ? current.cards
+        : cardIds
+            .map((id) => current.cards.find((card) => card.id === id))
+            .filter((card): card is Card => Boolean(card))
+    const setSlug =
+      current.name
+        .trim()
+        .toLocaleLowerCase()
+        .replace(/[^a-z0-9-_]+/gi, '-')
+        .replace(/^-|-$/g, '') || 'set'
     const exportedAt = new Date()
     const pad = (value: number) => String(value).padStart(2, '0')
     const dateStamp = `${exportedAt.getFullYear()}-${pad(exportedAt.getMonth() + 1)}-${pad(exportedAt.getDate())}_${pad(exportedAt.getHours())}-${pad(exportedAt.getMinutes())}-${pad(exportedAt.getSeconds())}`
@@ -2170,16 +3261,31 @@ app.whenReady().then(() => {
     worksheet.addRow(current.columns.map((column) => column.header))
     for (const card of cardsToExport) {
       const values = resolveConditionalValues(current.columns, card).values
-      worksheet.addRow(current.columns.map((column) => {
-        const value = column.fieldId === 'meta_title' ? card.title : column.fieldId === 'meta_quantity' ? card.quantity : column.fieldId === 'meta_status' ? card.status : column.fieldId === 'meta_tags' ? card.tags.join(', ') : (values[column.fieldId] ?? '')
-        return column.type === 'image' && value ? tabletopAssetReference(String(value)) : value
-      }))
+      worksheet.addRow(
+        current.columns.map((column) => {
+          const value =
+            column.fieldId === 'meta_title'
+              ? card.title
+              : column.fieldId === 'meta_quantity'
+                ? card.quantity
+                : column.fieldId === 'meta_status'
+                  ? card.status
+                  : column.fieldId === 'meta_tags'
+                    ? card.tags.join(', ')
+                    : (values[column.fieldId] ?? '')
+          return column.type === 'image' && value ? tabletopAssetReference(String(value)) : value
+        }),
+      )
     }
     await workbook.xlsx.writeFile(file)
     return { path: file, count: cardsToExport.length }
   })
   createWindow()
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow() })
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+  })
 })
 
-app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit() })
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit()
+})

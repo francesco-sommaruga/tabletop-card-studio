@@ -16,7 +16,11 @@ export function resolveConditionalValues(columns: ColumnDefinition[], card: Card
       const number = Number(value)
       resolved.quantity = value.trim() && Number.isFinite(number) ? number : 1
     } else if (fieldId === 'meta_status') resolved.status = value as CardStatus
-    else if (fieldId === 'meta_tags') resolved.tags = value.split(',').map((tag) => tag.trim()).filter(Boolean)
+    else if (fieldId === 'meta_tags')
+      resolved.tags = value
+        .split(',')
+        .map((tag) => tag.trim())
+        .filter(Boolean)
     else resolved.values[fieldId] = value
   }
   for (const column of columns) {
@@ -32,11 +36,13 @@ export function resolveConditionalValues(columns: ColumnDefinition[], card: Card
       if (rule.operator === 'is_set') return Boolean(source)
       if (rule.operator === 'is_empty') return !source
       if (rule.operator === 'equals') return source.toLocaleLowerCase() === target.toLocaleLowerCase()
-      if (rule.operator === 'not_equals') return Boolean(source) && source.toLocaleLowerCase() !== target.toLocaleLowerCase()
+      if (rule.operator === 'not_equals')
+        return Boolean(source) && source.toLocaleLowerCase() !== target.toLocaleLowerCase()
       if (rule.operator === 'greater_than' || rule.operator === 'less_than') {
         const sourceNumber = Number(source)
         const targetNumber = Number(target)
-        if (!source.trim() || !target.trim() || !Number.isFinite(sourceNumber) || !Number.isFinite(targetNumber)) return false
+        if (!source.trim() || !target.trim() || !Number.isFinite(sourceNumber) || !Number.isFinite(targetNumber))
+          return false
         return rule.operator === 'greater_than' ? sourceNumber > targetNumber : sourceNumber < targetNumber
       }
       return Boolean(target) && source.toLocaleLowerCase().includes(target.toLocaleLowerCase())

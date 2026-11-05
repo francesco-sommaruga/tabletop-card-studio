@@ -1,0 +1,5 @@
+node_modules
+dist
+dist-electron
+renderer-dist
+package-lock.json
