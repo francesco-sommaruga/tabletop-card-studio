@@ -7037,3 +7037,62 @@
     justify-content: center;
   }
 }
+
+/* Native sync conflict: persistent banner on the cards view + dot on the set in the sidebar. */
+.native-sync-banner {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px 14px;
+  margin: 0 0 16px;
+  padding: 12px 14px;
+  border: 1px solid #e4c5b7;
+  border-left: 3px solid #a34c34;
+  background: #f5e9e3;
+  color: #8d4c36;
+}
+.native-sync-banner-icon {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  margin-top: 1px;
+  color: #a34c34;
+}
+.native-sync-banner-copy {
+  flex: 1 1 320px;
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.native-sync-banner-copy strong {
+  font-size: 11px;
+  color: #7c3d2a;
+}
+.native-sync-banner-copy p {
+  margin: 0;
+  font-size: 10px;
+  line-height: 1.5;
+}
+.native-sync-banner-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.native-sync-banner-actions .button {
+  height: 32px;
+  font-size: 11px;
+}
+.native-sync-banner-actions .button:disabled {
+  opacity: 0.55;
+  cursor: progress;
+}
+.native-sync-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #c0583a;
+  box-shadow: 0 0 0 2px #f5e9e3;
+}
+.native-sync-dot.is-error {
+  background: #8d4c36;
+}
