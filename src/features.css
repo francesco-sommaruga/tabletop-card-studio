@@ -7114,3 +7114,26 @@
   background: #4a443c;
   border-color: #786f63;
 }
+
+/* Card editor: previous/next card */
+.editor-nav {
+  display: flex;
+}
+.editor-nav-button {
+  height: 34px;
+  width: 34px;
+  border: 1px solid #e7e0d5;
+}
+.editor-nav-button:first-child {
+  border-radius: 4px 0 0 4px;
+}
+.editor-nav-button + .editor-nav-button {
+  border-left: 0;
+  border-radius: 0 4px 4px 0;
+}
+.editor-nav-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+  background: transparent;
+  color: #988f82;
+}

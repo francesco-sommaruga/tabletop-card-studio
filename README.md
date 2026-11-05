@@ -66,6 +66,7 @@ I pacchetti vengono generati in `dist/`.
 - Nascondi campi nell’editor senza escluderli dall’Excel e configura regole che compilano valori automaticamente in base ad altri campi (ad esempio colore predefinito quando un’icona è assegnata).
 - Modifica i campi direttamente nelle righe dell’archivio, assegna tag e stato alle carte, cerca e filtra per campi e ordina l’elenco.
 - Annulla e ripristina le modifiche alle carte (modifiche in tabella e nell’editor, nuove carte, eliminazioni) con Ctrl+Z e Ctrl+Maiusc+Z / Ctrl+Y (Cmd su macOS), separatamente per ogni set; dopo un annullamento il pulsante **Ripristina** nel messaggio rifà la modifica. Nei campi di testo resta attivo l’annulla del testo.
+- Nell’editor della carta passa alla carta precedente o successiva dell’elenco filtrato e ordinato con i pulsanti in alto o con Alt+↑/↓; le modifiche non salvate vengono salvate prima di cambiare carta. Ctrl+S (Cmd+S) salva la carta.
 - Scegli quali colonne mostrare nell’archivio: le colonne di base restano attive al primo avvio e le preferenze vengono salvate per progetto e set.
 - Apri un’anteprima ricostruita dai blueprint del progetto, con selezione del blueprint e vista fronte/retro.
 - Consulta statistiche per tag e proprietà, anche incrociando due campi e contando carte uniche o copie.

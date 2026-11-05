@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Eye, X, Tag, Plus, ArrowRightLeft, Check } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { ArrowRightLeft, Check } from 'lucide-react'
 import type { Card, ColumnDefinition, ProjectAsset, ProjectVariable, TabletopBlueprint, CardStatus } from '../../types'
 import { resolveConditionalValues } from '../../conditional'
 import { VariableInsert, IconVariableInsert } from '../fields/VariableInsert'
@@ -10,6 +10,9 @@ import { ColorField } from '../fields/ColorField'
 import { VariableField } from '../fields/VariableField'
 import { ImageField } from '../fields/ImageField'
 import { CardBlueprintPreview } from './CardBlueprintPreview'
+import { CardEditorHeader } from './CardEditorHeader'
+import { CardTagsField } from './CardTagsField'
+import { useEditorShortcuts } from '../../hooks/useEditorShortcuts'
 
 export function CardEditor({
   card: initial,
@@ -24,6 +27,8 @@ export function CardEditor({
   onClose,
   onSave,
   onDelete,
+  onPrevious,
+  onNext,
 }: {
   card: Card
   columns: ColumnDefinition[]
@@ -37,50 +42,47 @@ export function CardEditor({
   onClose: () => void
   onSave: (card: Card) => void
   onDelete: () => void
+  /** Opens the previous card; receives the draft when it has unsaved changes. Undefined at the start. */
+  onPrevious?: (unsaved: Card | null) => void
+  /** Opens the next card; receives the draft when it has unsaved changes. Undefined at the end. */
+  onNext?: (unsaved: Card | null) => void
 }) {
-  const [card, setCard] = useState<Card>(() => resolveConditionalValues(columns, initial))
-  const [tagInput, setTagInput] = useState('')
+  const [baseline, setBaseline] = useState<Card>(() => resolveConditionalValues(columns, initial))
+  const [card, setCard] = useState<Card>(baseline)
   const [previewOpen, setPreviewOpen] = useState(false)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  if (initial.id !== baseline.id) {
+    // Another card was opened (previous/next): start a fresh draft without remounting the drawer.
+    const next = resolveConditionalValues(columns, initial)
+    setBaseline(next)
+    setCard(next)
+  }
+  useEffect(() => {
+    if (bodyRef.current) bodyRef.current.scrollTop = 0
+  }, [initial.id])
+  const isDirty = JSON.stringify(card) !== JSON.stringify(baseline)
+  const goTo = (open?: (unsaved: Card | null) => void) => open && (() => open(isDirty ? card : null))
+  const goPrevious = goTo(onPrevious)
+  const goNext = goTo(onNext)
+  useEditorShortcuts({ onSave: () => onSave(card), onPrevious: goPrevious, onNext: goNext })
   const fields = columns.filter(
     (column) => !['meta_title', 'meta_quantity', 'meta_status', 'meta_tags'].includes(column.fieldId) && !column.hidden,
   )
   const setValue = (id: string, value: string) =>
     setCard((current) => resolveConditionalValues(columns, { ...current, values: { ...current.values, [id]: value } }))
   const patchCard = (next: Card) => setCard(resolveConditionalValues(columns, next))
-  const addTag = () => {
-    const tag = tagInput.trim()
-    if (tag && !card.tags.includes(tag)) patchCard({ ...card, tags: [...card.tags, tag] })
-    setTagInput('')
-  }
   return (
     <>
-      <button className="scrim" aria-label="Chiudi editor" onClick={onClose} />
+      <button className="scrim card-editor-scrim" aria-label="Chiudi editor" onClick={onClose} />
       <aside className="editor-panel">
-        <div className="editor-head">
-          <div>
-            <div className="eyebrow">
-              <span className="eyebrow-line" />
-              EDITOR CARTA
-            </div>
-            <h2>Dettagli</h2>
-          </div>
-          <div className="editor-head-actions">
-            {blueprints.length > 0 && (
-              <button
-                type="button"
-                className="button button-quiet preview-open-button"
-                onClick={() => setPreviewOpen(true)}
-              >
-                <Eye size={14} />
-                Anteprima
-              </button>
-            )}
-            <button className="icon-button close-editor" onClick={onClose} aria-label="Chiudi">
-              <X size={18} />
-            </button>
-          </div>
-        </div>
-        <div className="editor-body">
+        <CardEditorHeader
+          canPreview={blueprints.length > 0}
+          onPreview={() => setPreviewOpen(true)}
+          onPrevious={goPrevious}
+          onNext={goNext}
+          onClose={onClose}
+        />
+        <div className="editor-body" ref={bodyRef}>
           <div className="field-group">
             <label>TITOLO DELLA CARTA</label>
             <input
@@ -123,35 +125,7 @@ export function CardEditor({
               />
             </div>
           </div>
-          <div className="field-group">
-            <label>
-              TAG <span className="label-hint">· premi Invio per aggiungere</span>
-            </label>
-            <div className="tag-entry">
-              <Tag size={15} />
-              <input
-                value={tagInput}
-                onChange={(event) => setTagInput(event.target.value)}
-                onKeyDown={(event) => event.key === 'Enter' && (event.preventDefault(), addTag())}
-                placeholder="es. azione, risorsa, raro"
-              />
-              <button onClick={addTag} aria-label="Aggiungi tag">
-                <Plus size={16} />
-              </button>
-            </div>
-            <div className="editor-tags">
-              {card.tags.map((tag) => (
-                <button
-                  key={tag}
-                  className="tag-pill editable-tag"
-                  onClick={() => patchCard({ ...card, tags: card.tags.filter((item) => item !== tag) })}
-                >
-                  {tag}
-                  <X size={11} />
-                </button>
-              ))}
-            </div>
-          </div>
+          <CardTagsField key={card.id} tags={card.tags} onChange={(tags) => patchCard({ ...card, tags })} />
           <div className="field-divider">
             <span>CAMPI DELLA CARTA</span>
             <span>{fields.length} CAMPI</span>
@@ -270,7 +244,7 @@ export function CardEditor({
                 Sposta carta
               </button>
             )}
-            <button className="button button-primary" onClick={() => onSave(card)}>
+            <button className="button button-primary" onClick={() => onSave(card)} title="Salva modifiche (Ctrl+S)">
               <Check size={16} />
               Salva modifiche
             </button>

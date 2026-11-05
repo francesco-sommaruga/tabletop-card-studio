@@ -30,6 +30,8 @@ export interface AppDialogsProps {
   selected: Card | null
   filteredCards: Card[]
   onCloseEditor: () => void
+  /** Opens another card in the editor (previous/next). */
+  onOpenCard: (card: Card) => void
   mutations: CardMutations
   importFlow: ImportFlow
   exportFlow: ExportFlow
@@ -44,6 +46,18 @@ export function AppDialogs(props: AppDialogsProps) {
   const { renameTarget, movingCard } = sets
   const { snapshot, activeSet, cards, columns } = session
   const conflict = snapshot ? findNameConflict(snapshot) : undefined
+  /** Previous/next card in the current filtered order; unsaved editor changes are saved first (one undo step). */
+  const neighbor = (offset: number) => {
+    const index = selected ? props.filteredCards.findIndex((card) => card.id === selected.id) : -1
+    const target = index < 0 ? undefined : props.filteredCards[index + offset]
+    return (
+      target &&
+      ((unsaved: Card | null) => {
+        if (unsaved) mutations.updateCard(unsaved)
+        props.onOpenCard(target)
+      })
+    )
+  }
   return (
     <>
       {selected && snapshot && (
@@ -60,6 +74,8 @@ export function AppDialogs(props: AppDialogsProps) {
           onClose={props.onCloseEditor}
           onSave={mutations.saveCard}
           onDelete={() => mutations.deleteCard(selected)}
+          onPrevious={neighbor(-1)}
+          onNext={neighbor(1)}
         />
       )}
       {importFlow.importOpen && snapshot && (

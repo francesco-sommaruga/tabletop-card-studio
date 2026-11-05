@@ -121,6 +121,7 @@ function App() {
         selected={selected}
         filteredCards={filters.filteredCards}
         onCloseEditor={() => setSelected(null)}
+        onOpenCard={setSelected}
         mutations={mutations}
         importFlow={importFlow}
         exportFlow={exportFlow}
