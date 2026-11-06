@@ -274,8 +274,14 @@ export interface ProjectSnapshot {
   nativeSync: Record<string, NativeSyncStatus>
 }
 
+/** A newer release: `ready` is downloaded and installs on restart; `available` (macOS) links to the download. */
+export type UpdateStatus = { kind: 'ready'; version: string } | { kind: 'available'; version: string; url: string }
+
 export interface CardCmsApi {
   onNotice: (callback: (message: string) => void) => () => void
+  onUpdateStatus: (callback: (status: UpdateStatus) => void) => () => void
+  getUpdateStatus: () => Promise<UpdateStatus | null>
+  applyUpdate: () => Promise<void>
   onSnapshot: (callback: (snapshot: ProjectSnapshot) => void) => () => void
   openDiagnosticLog: () => Promise<string>
   writeDiagnostic: (event: string, details?: Record<string, string | number | boolean | undefined>) => Promise<void>

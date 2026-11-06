@@ -7367,3 +7367,48 @@
   background: #f1e3d7;
   color: #98533b;
 }
+
+/* Update available / ready banner */
+.update-banner {
+  position: fixed;
+  z-index: 11;
+  top: 14px;
+  right: 18px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 9px 12px 9px 14px;
+  border-radius: 4px;
+  background: #38342e;
+  color: #f8f3e9;
+  font-size: 12px;
+  box-shadow: 0 6px 18px rgba(30, 26, 21, 0.22);
+}
+.update-banner svg {
+  color: #a8b587;
+}
+.update-banner button {
+  padding: 4px 9px;
+  border-radius: 3px;
+  font:
+    600 11px 'DM Sans',
+    sans-serif;
+  cursor: pointer;
+}
+.update-banner-primary {
+  border: 1px solid #a8b587;
+  background: #a8b587;
+  color: #2b2823;
+}
+.update-banner-primary:hover {
+  background: #b9c599;
+}
+.update-banner-secondary {
+  border: 1px solid #5c554b;
+  background: transparent;
+  color: #f2c9ad;
+}
+.update-banner-secondary:hover {
+  background: #4a443c;
+  border-color: #786f63;
+}

@@ -20,6 +20,7 @@ import { ViewRouter } from './app/ViewRouter'
 import { AppDialogs } from './app/AppDialogs'
 import { useNativeSync } from './hooks/useNativeSync'
 import { ToastMessage } from './app/ToastMessage'
+import { UpdateBanner } from './app/UpdateBanner'
 
 function App() {
   const session = useProjectSession()
@@ -129,6 +130,7 @@ function App() {
         sets={sets}
         project={project}
       />
+      <UpdateBanner />
       {toast && <ToastMessage toast={toast} onDismiss={dismissToast} />}
     </div>
   )

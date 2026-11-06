@@ -16,6 +16,7 @@ import type {
   ProjectIconReference,
   ProjectSummary,
   ProjectVariable,
+  UpdateStatus,
   WorkbookInfo,
   WorkbookMergePreview,
 } from '../src/types'
@@ -26,6 +27,13 @@ contextBridge.exposeInMainWorld('cardCms', {
     ipcRenderer.on('app:notice', listener)
     return () => ipcRenderer.removeListener('app:notice', listener)
   },
+  onUpdateStatus: (callback: (status: UpdateStatus) => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, status: UpdateStatus) => callback(status)
+    ipcRenderer.on('update:status', listener)
+    return () => ipcRenderer.removeListener('update:status', listener)
+  },
+  getUpdateStatus: () => ipcRenderer.invoke('update:status') as Promise<UpdateStatus | null>,
+  applyUpdate: () => ipcRenderer.invoke('update:apply') as Promise<void>,
   onSnapshot: (callback: (snapshot: ProjectSnapshot) => void) => {
     const listener = (_event: Electron.IpcRendererEvent, snapshot: ProjectSnapshot) => callback(snapshot)
     ipcRenderer.on('project:snapshot', listener)

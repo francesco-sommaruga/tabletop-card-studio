@@ -4,6 +4,7 @@ import { state } from './state'
 import { writeDiagnostic } from './diagnostics'
 import { registerIpcHandlers } from './ipc'
 import { stopNativeWatcher } from './native/watch'
+import { initUpdater } from './updater'
 
 async function createWindow() {
   await writeDiagnostic('info', 'window.create', {
@@ -37,6 +38,7 @@ app.whenReady().then(() => {
   })
   registerIpcHandlers()
   createWindow()
+  initUpdater()
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })

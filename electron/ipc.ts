@@ -51,6 +51,7 @@ import {
   deleteSet,
   createSet,
 } from './sets'
+import { applyUpdate, getUpdateStatus } from './updater'
 import { saveVariables } from './variables'
 import { exportActiveSet } from './workbooks/export'
 import { rescanWorkbooks, importWorkbooks } from './workbooks/import'
@@ -63,6 +64,8 @@ export function registerIpcHandlers() {
     (_event, event: string, details?: Record<string, string | number | boolean | undefined>) =>
       writeRendererDiagnostic(event, details),
   )
+  ipcMain.handle('update:status', getUpdateStatus)
+  ipcMain.handle('update:apply', applyUpdate)
   ipcMain.handle('project:open', () => openProjectFromDialog())
   ipcMain.handle('project:open-path', async (_event, folder: string) =>
     existsSync(folder) ? openProject(folder) : null,

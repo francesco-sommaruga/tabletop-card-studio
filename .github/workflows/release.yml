@@ -22,11 +22,16 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             arch: x64
-            asset: dist/*.AppImage
+            asset: |
+              dist/*.AppImage
+              dist/latest-linux.yml
           - os: windows-latest
             platform: windows
             arch: x64
-            asset: dist/*.exe
+            asset: |
+              dist/*.exe
+              dist/*.exe.blockmap
+              dist/latest.yml
           - os: macos-latest
             platform: macOS
             arch: x64
