@@ -1,6 +1,7 @@
 import type { GitHubRepositoryResult } from '../../src/types'
 import { state } from '../state'
 import { runGit, readGitStatus, githubWebUrl } from '../git'
+import { gitConfigEnv } from '../git-env'
 import { getFreshGithubCredential, githubAuthStatus } from './auth'
 
 export async function createGitHubRepository(name: string, isPrivate: boolean): Promise<GitHubRepositoryResult> {
@@ -144,18 +145,13 @@ async function runGithubAuthenticatedGit(args: string[]) {
   const credential = await getFreshGithubCredential()
   if (!credential) throw new Error('Accedi a GitHub dall’app prima di usare Pull o Push.')
   const authHeader = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${credential.accessToken}`, 'utf8').toString('base64')}`
-  const config: Array<[string, string]> = [
+  const env = gitConfigEnv({ ...process.env, GIT_TERMINAL_PROMPT: '0' }, [
     ['credential.helper', ''],
     ['credential.interactive', 'never'],
     ['http.https://github.com/.extraheader', authHeader],
     ['url.https://github.com/.insteadOf', 'git@github.com:'],
     ['url.https://github.com/.insteadOf', 'ssh://git@github.com/'],
-  ]
-  const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_COUNT: String(config.length), GIT_TERMINAL_PROMPT: '0' }
-  config.forEach(([key, value], index) => {
-    env[`GIT_CONFIG_KEY_${index}`] = key
-    env[`GIT_CONFIG_VALUE_${index}`] = value
-  })
+  ])
   return runGit(args, env)
 }
 

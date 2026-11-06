@@ -9,3 +9,4 @@ release/
 .tabletop-card-studio/
 .DS_Store
 Thumbs.db
+vendor/

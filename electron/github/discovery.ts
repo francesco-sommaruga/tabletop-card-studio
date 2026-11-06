@@ -5,7 +5,8 @@ import fs from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import type { GitHubProjectRepository, ProjectSnapshot } from '../../src/types'
 import { state } from '../state'
-import { runGitAt, githubWebUrl } from '../git'
+import { runGitAt, githubWebUrl, enableGitLfsIfUsed } from '../git'
+import { gitConfigEnv, lfsFilterConfig } from '../git-env'
 import type { GitHubApiRepository } from './api'
 import { githubApiRequest, GitHubApiError, githubInstalledRepositories } from './api'
 import { getFreshGithubCredential } from './auth'
@@ -181,18 +182,16 @@ export async function cloneGitHubProjectRepository(fullName: string): Promise<Pr
   const temporaryDestination = path.join(parent, `.${repository.name}.card-studio-${randomUUID()}.tmp`)
 
   const authHeader = `AUTHORIZATION: basic ${Buffer.from(`x-access-token:${credential.accessToken}`, 'utf8').toString('base64')}`
-  const config: Array<[string, string]> = [
+  // The LFS filter lets the checkout fetch real files even for users who never ran `git lfs install`.
+  const env = gitConfigEnv({ ...process.env, GIT_TERMINAL_PROMPT: '0' }, [
     ['credential.helper', ''],
     ['credential.interactive', 'never'],
     ['http.https://github.com/.extraheader', authHeader],
-  ]
-  const env: NodeJS.ProcessEnv = { ...process.env, GIT_CONFIG_COUNT: String(config.length), GIT_TERMINAL_PROMPT: '0' }
-  config.forEach(([key, value], index) => {
-    env[`GIT_CONFIG_KEY_${index}`] = key
-    env[`GIT_CONFIG_VALUE_${index}`] = value
-  })
+    ...lfsFilterConfig,
+  ])
   try {
     await runGitAt(parent, ['clone', '--quiet', '--', repository.clone_url, temporaryDestination], env, 30 * 60_000)
+    await enableGitLfsIfUsed(temporaryDestination, env)
   } catch (error) {
     await fs.rm(temporaryDestination, { recursive: true, force: true }).catch(() => undefined)
     throw new Error(

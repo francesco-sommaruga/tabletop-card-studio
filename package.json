@@ -50,7 +50,13 @@
       "category": "Office",
       "icon": "public/tabletop-card-studio.png",
       "executableName": "tabletop-card-studio",
-      "syncDesktopName": true
+      "syncDesktopName": true,
+      "extraResources": [
+        {
+          "from": "vendor/git-lfs/${os}-${arch}",
+          "to": "git-lfs"
+        }
+      ]
     },
     "win": {
       "target": [
@@ -62,8 +68,15 @@
       "target": [
         "dmg"
       ],
-      "icon": "public/tabletop-card-studio.png"
-    }
+      "icon": "public/tabletop-card-studio.png",
+      "extraResources": [
+        {
+          "from": "vendor/git-lfs/${os}-${arch}",
+          "to": "git-lfs"
+        }
+      ]
+    },
+    "beforePack": "scripts/fetch-git-lfs.cjs"
   },
   "overrides": {
     "uuid": "^11.1.1"

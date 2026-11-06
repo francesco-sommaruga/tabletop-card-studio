@@ -1,5 +1,9 @@
-import { shell } from 'electron'
+import { app, shell } from 'electron'
 import { execFile } from 'node:child_process'
+import { existsSync, readFileSync } from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+import { describeGitError, gitProcessEnv } from './git-env'
 import type { GitCommitFile, GitCommitSummary, GitFileStatus, GitStatus } from '../src/types'
 import { state } from './state'
 
@@ -17,15 +21,34 @@ export function runGitAt(
     execFile(
       'git',
       args,
-      { cwd, env: env ?? process.env, timeout, maxBuffer: 8 * 1024 * 1024 },
+      {
+        cwd,
+        env: gitProcessEnv(env ?? process.env, process.platform, os.homedir(), bundledGitLfsFolder()),
+        timeout,
+        maxBuffer: 8 * 1024 * 1024,
+      },
       (error, stdout, stderr) => {
         if (error) {
           const detail = stderr.trim() || stdout.trim() || error.message
-          reject(new Error(detail))
+          reject(new Error(describeGitError(detail)))
         } else resolve({ stdout: stdout.trim(), stderr: stderr.trim() })
       },
     )
   })
+}
+
+// Packaged Linux/macOS builds ship git-lfs in resources/git-lfs (see scripts/fetch-git-lfs.cjs).
+function bundledGitLfsFolder() {
+  if (!app.isPackaged) return undefined
+  const folder = path.join(process.resourcesPath, 'git-lfs')
+  return existsSync(folder) ? folder : undefined
+}
+
+// Stores the LFS filter and installs its hooks (pre-push uploads the real files) in repos that use LFS.
+export async function enableGitLfsIfUsed(repoDir: string, env?: NodeJS.ProcessEnv) {
+  const attributesPath = path.join(repoDir, '.gitattributes')
+  if (!existsSync(attributesPath) || !/filter=lfs/.test(readFileSync(attributesPath, 'utf8'))) return
+  await runGitAt(repoDir, ['lfs', 'install', '--local'], env)
 }
 
 export function githubWebUrl(remote: string) {
